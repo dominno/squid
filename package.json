@@ -1,0 +1,35 @@
+{
+  "name": "squid-claw",
+  "version": "0.1.0",
+  "description": "OpenClaw-native agentic pipeline framework — better than Lobster",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "squid-claw": "bin/squid-claw.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx watch src/cli/main.ts",
+    "start": "tsx src/cli/main.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "oxlint src/"
+  },
+  "dependencies": {
+    "ajv": "^8.17.0",
+    "chalk": "^5.3.0",
+    "commander": "^12.1.0",
+    "yaml": "^2.4.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@vitest/coverage-v8": "^2.1.9",
+    "tsx": "^4.15.0",
+    "typescript": "^5.5.0",
+    "vitest": "^2.0.0"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
