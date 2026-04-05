@@ -63,6 +63,7 @@ export interface Step {
   // Control flow
   when?: string;                   // Condition expression
   retry?: RetryConfig;             // Retry on failure
+  restart?: RestartConfig;         // Jump back to a previous step
   timeout?: number;                // Timeout in seconds
   env?: Record<string, string>;    // Step-level env vars
   cwd?: string;                    // Step working directory
@@ -156,6 +157,14 @@ export interface RetryConfig {
   delayMs?: number;                // Base delay (default: 1000)
   maxDelayMs?: number;             // Cap delay (default: 30000)
   retryOn?: string[];              // Error types/patterns to retry on
+}
+
+// ─── Restart (Jump Back) ──────────────────────────────────────────────
+
+export interface RestartConfig {
+  step: string;                    // Step ID to jump back to
+  when: string;                    // Condition — restart only if true
+  maxRestarts?: number;            // Safety limit (default: 3)
 }
 
 // ─── Error Handling ───────────────────────────────────────────────────

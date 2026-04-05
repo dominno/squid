@@ -305,6 +305,57 @@ retry:
 - Retry wraps any step type including `spawn` and `pipeline`.
 - **Always add retry to network calls and flaky operations.**
 
+### `restart` — Jump Back to a Previous Step
+
+Enables iterative refinement loops: if a condition is met, execution jumps back to an earlier step and re-runs everything from there.
+
+```yaml
+# String shorthand — always restart, max 3 times
+restart: "write"
+
+# Full config
+restart:
+  step: write                       # REQUIRED — step ID to jump back to
+  when: $review.json.score < 80     # REQUIRED — condition to trigger restart
+  maxRestarts: 3                    # safety limit (default: 3)
+```
+
+- `step` must reference a step **before** the current one (no forward jumps).
+- On restart, results for all steps between target and current are **cleared** so they re-execute fresh.
+- When `maxRestarts` is exhausted, execution continues forward normally.
+- **Always set `maxRestarts`** to prevent infinite loops.
+
+**Typical use case — agent refinement loop:**
+
+```yaml
+steps:
+  - id: write
+    type: spawn
+    spawn:
+      task: |
+        Implement: ${args.task}
+        Prior feedback: ${review.json.feedback}
+        Output JSON: { "code": "...", "explanation": "..." }
+
+  - id: review
+    type: spawn
+    spawn:
+      task: |
+        Review this code. Score 0-100.
+        Output JSON: { "score": number, "feedback": "..." }
+      thinking: high
+
+  - id: decide
+    type: transform
+    transform: "$review.json.score"
+    restart:
+      step: write
+      when: $review.json.score < 80
+      maxRestarts: 3
+```
+
+This runs write→review→decide, and if score < 80 it jumps back to `write` (which now has access to `${review.json.feedback}` from the previous iteration). After 3 restarts it stops regardless.
+
 ### `timeout` — Step Timeout
 
 ```yaml
@@ -476,6 +527,48 @@ steps:
 ```
 
 Each stage file is a standalone pipeline with its own `name`, `args`, and `steps`.
+
+### Pattern: Iterative Agent Refinement (restart)
+
+Have an agent produce work, review it, and loop back until quality is met:
+
+```yaml
+steps:
+  - id: write
+    type: spawn
+    spawn:
+      task: |
+        Implement: ${args.task}
+        Prior review feedback: ${review.json.feedback}
+        Output JSON: { "code": "...", "explanation": "..." }
+      timeout: 300
+
+  - id: review
+    type: spawn
+    spawn:
+      task: |
+        Review this code for: ${args.task}
+        Code: ${write.json.code}
+        Score 0-100. Output JSON: { "score": number, "feedback": "...", "issues": [...] }
+      thinking: high
+      timeout: 180
+
+  - id: quality-gate
+    type: transform
+    transform: "$review.json.score"
+    restart:
+      step: write                    # jump back to writing step
+      when: $review.json.score < 80  # if below threshold
+      maxRestarts: 3                 # max 3 refinement cycles
+
+  - id: approve
+    type: gate
+    gate:
+      prompt: "Score: ${review.json.score}. Approve?"
+      preview: $write.json
+```
+
+Flow: write → review → score=60 → restart → write (with feedback) → review → score=85 → continue → approve.
 
 ### Pattern: Conditional Error Handling
 

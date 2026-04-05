@@ -117,6 +117,15 @@ export async function runPipeline(
   let resumeToken: ResumeToken | undefined;
   let lastError: string | undefined;
 
+  // Track restart counts per step to enforce maxRestarts
+  const restartCounts = new Map<string, number>();
+
+  // Build step index lookup for restart jumps
+  const stepIndexMap = new Map<string, number>();
+  for (let idx = 0; idx < pipeline.steps.length; idx++) {
+    stepIndexMap.set(pipeline.steps[idx].id, idx);
+  }
+
   try {
     for (let i = startIndex; i < pipeline.steps.length; i++) {
       // Check abort
@@ -147,6 +156,45 @@ export async function runPipeline(
         finalStatus = "failed";
         lastError = result.error?.message;
         if (pipeline.onError !== "skip") break;
+      }
+
+      // ─── Restart: jump back to a previous step ─────────
+      if (step.restart && evaluateCondition(step.restart.when, ctx)) {
+        const targetId = step.restart.step;
+        const targetIndex = stepIndexMap.get(targetId);
+        if (targetIndex == null) {
+          throw new Error(
+            `Restart target step '${targetId}' not found in pipeline '${pipeline.name}'`
+          );
+        }
+        if (targetIndex >= i) {
+          throw new Error(
+            `Restart target '${targetId}' must be before current step '${step.id}' (forward jumps not allowed)`
+          );
+        }
+
+        const maxRestarts = step.restart.maxRestarts ?? 3;
+        const count = (restartCounts.get(step.id) ?? 0) + 1;
+        restartCounts.set(step.id, count);
+
+        if (count > maxRestarts) {
+          // Exhausted restarts — continue forward
+          result.meta = {
+            ...result.meta,
+            restartExhausted: true,
+            restartCount: count - 1,
+          };
+          ctx.results.set(step.id, result);
+          continue;
+        }
+
+        // Clear results for steps that will re-execute
+        for (let j = targetIndex; j <= i; j++) {
+          ctx.results.delete(pipeline.steps[j].id);
+        }
+
+        // Jump back (the for-loop will increment i, so set to targetIndex - 1)
+        i = targetIndex - 1;
       }
     }
   } catch (err) {

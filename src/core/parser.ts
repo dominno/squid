@@ -21,6 +21,7 @@ import type {
   BranchConfig,
   PipelineRefConfig,
   RetryConfig,
+  RestartConfig,
   ArgDef,
   ErrorStrategy,
 } from "./types.js";
@@ -138,6 +139,10 @@ function parseStep(raw: unknown, source?: string, path?: string): Step {
 
   if (obj.retry != null) {
     step.retry = parseRetryConfig(obj.retry, source, `${path}.retry`);
+  }
+
+  if (obj.restart != null) {
+    step.restart = parseRestartConfig(obj.restart, source, `${path}.restart`);
   }
 
   return step;
@@ -358,6 +363,27 @@ function parseRetryConfig(raw: unknown, source?: string, path?: string): RetryCo
   if (obj.delayMs != null) config.delayMs = Number(obj.delayMs);
   if (obj.maxDelayMs != null) config.maxDelayMs = Number(obj.maxDelayMs);
   if (obj.retryOn != null) config.retryOn = (obj.retryOn as string[]).map(String);
+
+  return config;
+}
+
+function parseRestartConfig(raw: unknown, source?: string, path?: string): RestartConfig {
+  if (typeof raw === "string") {
+    // Shorthand: restart: "step-id" — always restart, max 3
+    return { step: raw, when: "true", maxRestarts: 3 };
+  }
+
+  if (!raw || typeof raw !== "object") {
+    throw new ParseError(`${path} must be a string or object`, source);
+  }
+
+  const obj = raw as Record<string, unknown>;
+  const config: RestartConfig = {
+    step: requireString(obj, "step", source, path),
+    when: requireString(obj, "when", source, path),
+  };
+
+  if (obj.maxRestarts != null) config.maxRestarts = Number(obj.maxRestarts);
 
   return config;
 }

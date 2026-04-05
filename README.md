@@ -146,6 +146,7 @@ squid-claw viz deploy.yaml
 | `loop` | Iterate over array items | `loop: { over, as, steps, maxConcurrent }` |
 | `branch` | Conditional routing | `branch: { conditions: [{ when, steps }] }` |
 | `transform` | Inline data transformation | `transform: "$step.json.field"` |
+| `pipeline` | Run a sub-pipeline YAML | `pipeline: { file, args }` |
 
 ## Data Flow
 
@@ -228,6 +229,71 @@ Fan out work and merge results:
           run: npm run lint
 ```
 
+## Restart (Jump Back)
+
+Any step can jump back to a previous step when a condition is met — enabling iterative refinement loops:
+
+```yaml
+steps:
+  - id: write
+    type: spawn
+    spawn:
+      task: |
+        Implement: ${args.task}
+        Prior feedback: ${review.json.feedback}
+
+  - id: review
+    type: spawn
+    spawn:
+      task: "Review the code. Score 0-100."
+      thinking: high
+
+  - id: decide
+    type: transform
+    transform: "$review.json.score"
+    restart:
+      step: write                      # jump back to this step
+      when: $review.json.score < 80    # if this condition is true
+      maxRestarts: 3                   # safety limit (default: 3)
+```
+
+Flow: `write → review → score=50 → RESTART → write(+feedback) → review → score=85 → continue`
+
+- Target step must be **before** the current step (no forward jumps)
+- Results between target and current are **cleared** on restart
+- Previous iteration outputs are available via `$refs` (e.g., `${review.json.feedback}`)
+- After `maxRestarts` exhausted, execution continues forward
+
+See `examples/iterative-refinement.yaml` for a full working example.
+
+## Sub-Pipeline Composition
+
+Run another YAML pipeline as a step. File paths resolve relative to the parent pipeline's directory.
+
+```yaml
+steps:
+  - id: build
+    type: pipeline
+    pipeline:
+      file: ./stages/build.yaml        # relative to THIS file
+      args:
+        target: $args.env              # pass parent args via $refs
+        data: $fetch.json              # pass step outputs
+
+  - id: deploy
+    type: pipeline
+    pipeline:
+      file: ./stages/deploy.yaml
+      args:
+        artifact: $build.json.artifact
+```
+
+- Sub-pipeline output becomes the step's output (`$build.json`)
+- Gates inside sub-pipelines propagate up — parent halts too
+- Each sub-pipeline is standalone and independently testable
+
+See `examples/orchestrator.yaml` with `sub-build.yaml`, `sub-test.yaml`, `sub-deploy.yaml`.
+
 ## Testing
 
 Built-in mock support — no OpenClaw needed for tests:
@@ -262,6 +328,8 @@ result.assertStepCompleted("deploy");
 | **Conditions** | `$step.approved\|skipped` | Full expressions: `$a.count > 5 && $b.ready` |
 | **Testing** | Script flags | Built-in `TestRunner` with mocks |
 | **Visualization** | None | Mermaid graph export |
+| **Sub-Pipelines** | Not supported | `pipeline:` for composable stages |
+| **Restart / Jump Back** | Not supported | `restart:` for iterative refinement loops |
 | **Resumability** | Opaque token + state dir | Self-contained base64 token |
 | **Principles** | Partial SOLID | Full SOLID/DRY/KISS |
 | **CLI** | `lobster run --file` | `squid-claw run` (file auto-detected) |
@@ -318,6 +386,7 @@ squid-claw/
 │   ├── multi-agent-dev.yaml   # 8-agent dev pipeline
 │   ├── video-pipeline.yaml    # Video content creation
 │   ├── simple-deploy.yaml     # Minimal deploy example
+│   ├── iterative-refinement.yaml # Restart/jump-back refinement loop
 │   └── lobster-migration.yaml # Migration guide from Lobster
 ├── agent-skill/
 │   └── SKILL.md               # AI agent skill for pipeline authoring
