@@ -531,7 +531,7 @@ describe("runPipeline", () => {
       const { resolve } = await import("node:path");
       const subPath = resolve(
         import.meta.dirname ?? ".",
-        "../examples/sub-build.yaml"
+        "../skills/squid-pipeline/examples/sub-build.yaml"
       );
 
       const pipeline: Pipeline = {
@@ -558,7 +558,7 @@ describe("runPipeline", () => {
       const { resolve } = await import("node:path");
       const subPath = resolve(
         import.meta.dirname ?? ".",
-        "../examples/sub-build.yaml"
+        "../skills/squid-pipeline/examples/sub-build.yaml"
       );
 
       const pipeline: Pipeline = {

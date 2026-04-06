@@ -24,6 +24,7 @@ import type {
   GateConfig,
 } from "../core/types.js";
 import { runPipeline, type RunOptions, type RunResult } from "../core/runtime.js";
+import { createNoopEmitter } from "../core/events.js";
 
 // ─── Test Runner Builder ──────────────────────────────────────────────
 
@@ -182,6 +183,7 @@ export class TestRunner {
       mode: "test",
       adapter,
       hooks,
+      events: createNoopEmitter(),
     });
 
     return {

@@ -485,19 +485,19 @@ Each sub-pipeline's output flows to the next via `$stepId.json`:
 
 ```bash
 # Validate all files
-squid validate examples/orchestrator.yaml
-squid validate examples/sub-build.yaml
-squid validate examples/sub-test.yaml
-squid validate examples/sub-deploy.yaml
+squid validate skills/squid-pipeline/examples/orchestrator.yaml
+squid validate skills/squid-pipeline/examples/sub-build.yaml
+squid validate skills/squid-pipeline/examples/sub-test.yaml
+squid validate skills/squid-pipeline/examples/sub-deploy.yaml
 
 # Dry run
-squid run examples/orchestrator.yaml --dry-run -v
+squid run skills/squid-pipeline/examples/orchestrator.yaml --dry-run -v
 
 # Real run (staging — no prod gate)
-squid run examples/orchestrator.yaml -v
+squid run skills/squid-pipeline/examples/orchestrator.yaml -v
 
 # Real run (prod — halts at deploy gate)
-squid run examples/orchestrator.yaml --args-json '{"env":"prod"}' -v
+squid run skills/squid-pipeline/examples/orchestrator.yaml --args-json '{"env":"prod"}' -v
 ```
 
 ---

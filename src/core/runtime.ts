@@ -23,6 +23,8 @@ import type {
   StepError,
   PipelineContext,
   PipelineHooks,
+  PipelineEventEmitter,
+  GateDecision,
   AgentAdapter,
   OpenClawAdapter,
   SpawnConfig,
@@ -34,6 +36,8 @@ import type {
 import { resolveRef, evaluateCondition, interpolate } from "./expressions.js";
 import { parseFile } from "./parser.js";
 import { resolveAdapter } from "./adapters/registry.js";
+import { createNoopEmitter, createEvent } from "./events.js";
+import { generateShortId, registerShortId, validateGateInput, validateApprover } from "./gate-utils.js";
 
 // ─── Public API ───────────────────────────────────────────────────────
 
@@ -47,6 +51,8 @@ export interface RunOptions {
   hooks?: PipelineHooks;
   signal?: AbortSignal;
   resumeToken?: ResumeToken;
+  initiatedBy?: string;            // Who started this pipeline run
+  events?: PipelineEventEmitter;   // Custom event emitter (default: noop)
 }
 
 export interface RunResult {
@@ -71,6 +77,8 @@ export async function runPipeline(
   const args = resolveArgs(pipeline, options.args ?? {});
 
   // Build context
+  const events = options.events ?? createNoopEmitter();
+
   const ctx: PipelineContext = {
     pipelineId: pipeline.name,
     runId,
@@ -79,11 +87,13 @@ export async function runPipeline(
     cwd: options.cwd ?? pipeline.cwd ?? process.cwd(),
     sourceDir: pipeline.sourceDir,
     agent: pipeline.agent,
+    initiatedBy: options.initiatedBy,
     results: new Map(),
     state: new Map(),
     mode: options.mode ?? "run",
     signal: options.signal,
     hooks: options.hooks ?? {},
+    events,
   };
 
   // Wire up agent adapter (legacy single adapter or per-step via registry)
@@ -106,8 +116,15 @@ export async function runPipeline(
         const gateResult: StepResult = {
           stepId: gateStep.id,
           status: token.gateDecision ? "completed" : "skipped",
-          output: { approved: token.gateDecision },
-          meta: { approved: token.gateDecision },
+          output: {
+            approved: token.gateDecision,
+            ...(token.gateInput ? { input: token.gateInput } : {}),
+            ...(token.approvedBy ? { approvedBy: token.approvedBy } : {}),
+          },
+          meta: {
+            approved: token.gateDecision,
+            ...(token.approvedBy ? { approvedBy: token.approvedBy } : {}),
+          },
         };
         ctx.results.set(gateStep.id, gateResult);
         startIndex++;
@@ -116,6 +133,7 @@ export async function runPipeline(
   }
 
   await ctx.hooks.onPipelineStart?.(pipeline, ctx);
+  events.emit(createEvent("pipeline:start", pipeline.name, runId, undefined, undefined, { args, mode: ctx.mode }));
 
   let finalStatus: RunResult["status"] = "completed";
   let resumeToken: ResumeToken | undefined;
@@ -142,7 +160,8 @@ export async function runPipeline(
       const result = await executeStep(step, ctx, adapter, pipeline.onError);
 
       if (result.status === "waiting_approval") {
-        // Create resume token and halt
+        // Create resume token with short ID and halt
+        const gateShortId = result.meta?.shortId as string | undefined;
         resumeToken = {
           version: 1,
           pipelineId: pipeline.name,
@@ -150,8 +169,15 @@ export async function runPipeline(
           resumeAtStep: step.id,
           completedResults: Object.fromEntries(ctx.results),
           args,
+          initiatedBy: ctx.initiatedBy,
+          shortId: gateShortId,
           createdAt: Date.now(),
         };
+        // Register short ID for lookup
+        if (gateShortId) {
+          const { encodeResumeToken } = await import("./resume.js");
+          registerShortId(gateShortId, encodeResumeToken(resumeToken));
+        }
         finalStatus = "halted";
         break;
       }
@@ -207,6 +233,9 @@ export async function runPipeline(
   }
 
   await ctx.hooks.onPipelineComplete?.(pipeline, ctx.results, ctx);
+  events.emit(createEvent("pipeline:complete", pipeline.name, runId, undefined, undefined, {
+    status: finalStatus, duration: Date.now() - startTime,
+  }));
 
   // Determine final output from last completed step
   const lastResult = findLastCompletedResult(pipeline.steps, ctx.results);
@@ -240,10 +269,12 @@ async function executeStep(
     };
     ctx.results.set(step.id, result);
     await ctx.hooks.onStepComplete?.(step, result, ctx);
+    ctx.events.emit(createEvent("step:skip", ctx.pipelineId, ctx.runId, step.id, step.type, { reason: "condition_false" }));
     return result;
   }
 
   await ctx.hooks.onStepStart?.(step, ctx);
+  ctx.events.emit(createEvent("step:start", ctx.pipelineId, ctx.runId, step.id, step.type));
 
   const startedAt = Date.now();
   let result: StepResult;
@@ -277,6 +308,7 @@ async function executeStep(
     }
 
     await ctx.hooks.onStepError?.(step, error, ctx);
+    ctx.events.emit(createEvent("step:error", ctx.pipelineId, ctx.runId, step.id, step.type, { error: error.message }));
   }
 
   result.startedAt = startedAt;
@@ -285,6 +317,9 @@ async function executeStep(
 
   ctx.results.set(step.id, result);
   await ctx.hooks.onStepComplete?.(step, result, ctx);
+  ctx.events.emit(createEvent("step:complete", ctx.pipelineId, ctx.runId, step.id, step.type, {
+    status: result.status, duration: result.duration,
+  }));
 
   return result;
 }
@@ -476,17 +511,63 @@ async function executeGate(
 
   // Check hook for programmatic approval (takes priority over auto-approve)
   if (ctx.hooks.onGateReached) {
-    const approved = await ctx.hooks.onGateReached(step, gate, ctx);
+    const hookResult = await ctx.hooks.onGateReached(step, gate, ctx);
+
+    // Hook can return boolean (legacy) or GateDecision (structured)
+    const decision: GateDecision = typeof hookResult === "boolean"
+      ? { approved: hookResult }
+      : hookResult;
+
+    // Validate caller identity if configured
+    if (decision.approved && (gate.requiredApprovers || gate.allowSelfApproval === false)) {
+      const identity = validateApprover(gate, decision.approvedBy, ctx.initiatedBy);
+      if (!identity.allowed) {
+        return {
+          stepId: step.id,
+          status: "skipped",
+          output: { approved: false, reason: identity.reason },
+          meta: { approved: false, identityRejected: true, reason: identity.reason },
+        };
+      }
+    }
+
+    // Validate structured input if configured
+    if (decision.approved && gate.input && decision.input) {
+      const validation = validateGateInput(gate.input, decision.input);
+      if (!validation.valid) {
+        return {
+          stepId: step.id,
+          status: "skipped",
+          output: { approved: false, validationErrors: validation.errors },
+          meta: { approved: false, validationErrors: validation.errors },
+        };
+      }
+      decision.input = validation.values; // use validated/coerced values
+    }
+
+    const eventType = decision.approved ? "gate:approved" : "gate:rejected";
+    ctx.events.emit(createEvent(eventType, ctx.pipelineId, ctx.runId, step.id, "gate", {
+      approvedBy: decision.approvedBy, hasInput: !!decision.input,
+    }));
+
     return {
       stepId: step.id,
-      status: approved ? "completed" : "skipped",
-      output: { approved },
-      meta: { approved },
+      status: decision.approved ? "completed" : "skipped",
+      output: {
+        approved: decision.approved,
+        ...(decision.input ? { input: decision.input } : {}),
+        ...(decision.approvedBy ? { approvedBy: decision.approvedBy } : {}),
+      },
+      meta: {
+        approved: decision.approved,
+        ...(decision.approvedBy ? { approvedBy: decision.approvedBy } : {}),
+      },
     };
   }
 
   // Auto-approve in test/dry-run mode
   if (ctx.mode === "test" || ctx.mode === "dry-run" || gate.autoApprove) {
+    ctx.events.emit(createEvent("gate:approved", ctx.pipelineId, ctx.runId, step.id, "gate", { autoApproved: true }));
     return {
       stepId: step.id,
       status: "completed",
@@ -495,16 +576,26 @@ async function executeGate(
     };
   }
 
+  // Generate short approval ID
+  const shortId = generateShortId();
+
+  ctx.events.emit(createEvent("gate:waiting", ctx.pipelineId, ctx.runId, step.id, "gate", {
+    prompt: interpolate(gate.prompt, ctx), shortId, hasInput: !!gate.input,
+  }));
+
   // Halt for external approval (resume token)
   return {
     stepId: step.id,
     status: "waiting_approval",
     output: {
       prompt: interpolate(gate.prompt, ctx),
+      shortId,
       items: gate.items,
       preview: gate.preview ? interpolate(gate.preview, ctx) : undefined,
+      ...(gate.input ? { inputFields: gate.input } : {}),
+      ...(gate.requiredApprovers ? { requiredApprovers: gate.requiredApprovers } : {}),
     },
-    meta: { gate: true },
+    meta: { gate: true, shortId },
   };
 }
 

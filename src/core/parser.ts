@@ -132,7 +132,7 @@ function parseStep(raw: unknown, source?: string, path?: string): Step {
   if (obj.input != null) step.input = String(obj.input);
   if (obj.output != null) step.output = String(obj.output);
   if (obj.when != null) step.when = String(obj.when);
-  if (obj.timeout != null) step.timeout = Number(obj.timeout);
+  if (obj.timeout != null) step.timeout = validatePositive(obj.timeout, "timeout", source, path);
   if (obj.env != null) step.env = parseEnv(obj.env, source);
   if (obj.cwd != null) step.cwd = String(obj.cwd);
   if (obj.tags != null) step.tags = (obj.tags as string[]).map(String);
@@ -149,9 +149,21 @@ function parseStep(raw: unknown, source?: string, path?: string): Step {
   return step;
 }
 
+const VALID_STEP_TYPES = new Set<StepType>([
+  "run", "spawn", "gate", "parallel", "loop", "branch", "transform", "pipeline",
+]);
+
 function inferStepType(obj: Record<string, unknown>, source?: string, path?: string): StepType {
   // Explicit type takes precedence
-  if (obj.type) return obj.type as StepType;
+  if (obj.type) {
+    if (!VALID_STEP_TYPES.has(obj.type as StepType)) {
+      throw new ParseError(
+        `Invalid step type '${obj.type}' at ${path}. Must be one of: ${[...VALID_STEP_TYPES].join(", ")}`,
+        source
+      );
+    }
+    return obj.type as StepType;
+  }
 
   // Infer from present keys
   if (obj.run != null || obj.command != null || obj.exec != null) return "run";
@@ -164,7 +176,7 @@ function inferStepType(obj: Record<string, unknown>, source?: string, path?: str
   if (obj.pipeline != null) return "pipeline";
 
   throw new ParseError(
-    `Cannot infer step type at ${path}. Provide one of: run, spawn, gate, parallel, loop, branch, transform`,
+    `Cannot infer step type at ${path}. Provide one of: ${[...VALID_STEP_TYPES].join(", ")}`,
     source
   );
 }
@@ -188,13 +200,21 @@ function parseSpawnConfig(raw: unknown, source?: string, path?: string): SpawnCo
   if (obj.agent != null) config.agent = String(obj.agent);
   if (obj.agentId != null) config.agentId = String(obj.agentId);
   if (obj.model != null) config.model = String(obj.model);
-  if (obj.thinking != null) config.thinking = obj.thinking as SpawnConfig["thinking"];
-  if (obj.runtime != null) config.runtime = obj.runtime as SpawnConfig["runtime"];
+  if (obj.thinking != null) config.thinking = validateEnum(obj.thinking, ["off", "low", "high"], "thinking", source, path);
+  if (obj.runtime != null) config.runtime = validateEnum(obj.runtime, ["subagent", "acp"], "runtime", source, path);
   if (obj.cwd != null) config.cwd = String(obj.cwd);
-  if (obj.timeout != null) config.timeout = Number(obj.timeout);
-  if (obj.mode != null) config.mode = obj.mode as SpawnConfig["mode"];
-  if (obj.sandbox != null) config.sandbox = obj.sandbox as SpawnConfig["sandbox"];
+  if (obj.timeout != null) config.timeout = validatePositive(obj.timeout, "timeout", source, path);
+  if (obj.mode != null) config.mode = validateEnum(obj.mode, ["run", "session"], "mode", source, path);
+  if (obj.sandbox != null) config.sandbox = validateEnum(obj.sandbox, ["inherit", "require"], "sandbox", source, path);
   if (obj.maxConcurrent != null) config.maxConcurrent = Number(obj.maxConcurrent);
+  if (obj.attachments != null && Array.isArray(obj.attachments)) {
+    config.attachments = (obj.attachments as Record<string, unknown>[]).map((a) => ({
+      name: String(a.name),
+      content: String(a.content),
+      encoding: a.encoding != null ? a.encoding as "utf8" | "base64" : undefined,
+      mimeType: a.mimeType != null ? String(a.mimeType) : undefined,
+    }));
+  }
 
   return config;
 }
@@ -221,6 +241,31 @@ function parseGateConfig(raw: unknown, source?: string, path?: string): GateConf
   if (obj.autoApprove != null) config.autoApprove = Boolean(obj.autoApprove);
   if (obj.timeout != null) config.timeout = Number(obj.timeout);
   if (obj.approvers != null) config.approvers = (obj.approvers as string[]).map(String);
+  if (obj.requiredApprovers != null) config.requiredApprovers = (obj.requiredApprovers as string[]).map(String);
+  if (obj.allowSelfApproval != null) config.allowSelfApproval = Boolean(obj.allowSelfApproval);
+  if (obj.input != null) {
+    if (!Array.isArray(obj.input)) {
+      throw new ParseError(`${path}.input must be an array of field definitions`, source);
+    }
+    config.input = (obj.input as Record<string, unknown>[]).map((f, i) => {
+      if (!f.name) {
+        throw new ParseError(`${path}.input[${i}] must have a 'name' field`, source);
+      }
+      const fieldType = f.type != null
+        ? validateEnum(f.type, ["string", "number", "boolean", "select"], `input[${i}].type`, source, path)
+        : "string" as const;
+      return {
+        name: String(f.name),
+        type: fieldType,
+        label: f.label != null ? String(f.label) : undefined,
+        description: f.description != null ? String(f.description) : undefined,
+        required: f.required != null ? Boolean(f.required) : undefined,
+        default: f.default,
+        options: f.options != null ? (f.options as string[]).map(String) : undefined,
+        validation: f.validation != null ? String(f.validation) : undefined,
+      };
+    });
+  }
 
   return config;
 }
@@ -248,7 +293,7 @@ function parseParallelConfig(raw: unknown, source?: string, path?: string): Para
 
   if (obj.maxConcurrent != null) config.maxConcurrent = Number(obj.maxConcurrent);
   if (obj.failFast != null) config.failFast = Boolean(obj.failFast);
-  if (obj.merge != null) config.merge = obj.merge as ParallelConfig["merge"];
+  if (obj.merge != null) config.merge = validateEnum(obj.merge, ["object", "array", "first"], "merge", source, path);
 
   return config;
 }
@@ -361,7 +406,7 @@ function parseRetryConfig(raw: unknown, source?: string, path?: string): RetryCo
     maxAttempts: Number(obj.maxAttempts ?? obj.max ?? 3),
   };
 
-  if (obj.backoff != null) config.backoff = obj.backoff as RetryConfig["backoff"];
+  if (obj.backoff != null) config.backoff = validateEnum(obj.backoff, ["fixed", "exponential", "exponential-jitter"], "backoff", source, path);
   if (obj.delayMs != null) config.delayMs = Number(obj.delayMs);
   if (obj.maxDelayMs != null) config.maxDelayMs = Number(obj.maxDelayMs);
   if (obj.retryOn != null) config.retryOn = (obj.retryOn as string[]).map(String);
@@ -449,6 +494,39 @@ function requireString(
     );
   }
   return String(obj[key]);
+}
+
+function validateEnum<const T extends readonly string[]>(
+  value: unknown,
+  allowed: T,
+  field: string,
+  source?: string,
+  path?: string
+): T[number] {
+  const str = String(value);
+  if (!allowed.includes(str)) {
+    throw new ParseError(
+      `Invalid value '${str}' for ${field}${path ? ` at ${path}` : ""}. Must be one of: ${allowed.join(", ")}`,
+      source
+    );
+  }
+  return str as T[number];
+}
+
+function validatePositive(
+  value: unknown,
+  field: string,
+  source?: string,
+  path?: string
+): number {
+  const num = Number(value);
+  if (isNaN(num) || num <= 0) {
+    throw new ParseError(
+      `${field}${path ? ` at ${path}` : ""} must be a positive number, got '${value}'`,
+      source
+    );
+  }
+  return num;
 }
 
 // ─── Validation ───────────────────────────────────────────────────────

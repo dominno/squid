@@ -9,10 +9,10 @@
 # Each sub-pipeline is self-contained and can also run standalone.
 #
 # Usage:
-#   squid run examples/orchestrator.yaml
-#   squid run examples/orchestrator.yaml --args-json '{"env":"prod"}'
-#   squid run examples/orchestrator.yaml --dry-run -v
-#   squid viz examples/orchestrator.yaml
+#   squid run squid-pipeline/examples/orchestrator.yaml
+#   squid run squid-pipeline/examples/orchestrator.yaml --args-json '{"env":"prod"}'
+#   squid run squid-pipeline/examples/orchestrator.yaml --dry-run -v
+#   squid viz squid-pipeline/examples/orchestrator.yaml
 
 name: orchestrator
 description: Full release pipeline composed from reusable sub-pipelines

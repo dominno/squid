@@ -2,7 +2,7 @@
 # Minimal example showing core features.
 #
 # Usage:
-#   squid run examples/simple-deploy.yaml \
+#   squid run squid-pipeline/examples/simple-deploy.yaml \
 #     --args-json '{"env": "staging", "image": "myapp:latest"}'
 
 name: simple-deploy

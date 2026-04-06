@@ -2,7 +2,7 @@
 # Replaces content-video-v11 Bash orchestration with native sub-agents.
 #
 # Usage:
-#   squid run examples/video-pipeline.yaml \
+#   squid run squid-pipeline/examples/video-pipeline.yaml \
 #     --args-json '{"topic": "AI agents explained", "style": "educational"}'
 
 name: video-pipeline

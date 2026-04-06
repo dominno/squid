@@ -1,6 +1,6 @@
 # Squid
 
-**Agentic pipeline framework with pluggable agent runtimes** — built to replace Lobster.
+**Agentic pipeline framework with pluggable agent runtimes** — inspired by Lobster, built for modern multi-agent workflows.
 
 Squid lets you define multi-agent workflows in YAML with native sub-agent spawning, approval gates, parallel execution, loops, branching, and retries. Spawn steps work with **OpenClaw**, **Claude Code**, **OpenCode**, or any custom agent runtime. No Bash glue needed.
 
@@ -84,6 +84,23 @@ npx squid run pipeline.yaml
 npm run dev -- run pipeline.yaml
 ```
 
+## Why Squid?
+
+**The problem**: Building multi-agent workflows today means gluing together shell scripts, manually calling LLM APIs, and hoping nothing breaks between steps. Existing tools lack sub-workflows, have no testing story, and lock you into a single agent runtime.
+
+**Squid fixes this**:
+
+- **Any agent runtime** — not locked to one vendor. Use OpenClaw, Claude Code, OpenCode, or plug in your own. Mix them in one pipeline.
+- **YAML, not code** — define complex multi-agent workflows in readable YAML. No Bash glue, no Python scripts, no orchestration code.
+- **Every step is testable** — `.test.yaml` files with sandbox mode (nothing executes) and integration mode. Mock any step. Zero agent calls needed for tests.
+- **Sub-pipelines** — break large workflows into reusable `.yaml` files. Each is standalone and independently testable.
+- **Human-in-the-loop done right** — approval gates with structured input fields (forms, not just yes/no), caller identity verification, and chat-friendly 8-char short IDs for Telegram/Discord/Slack.
+- **Iterative refinement** — `restart:` jumps back to a previous step when quality isn't met. Agent writes code, reviewer scores it, pipeline loops back with feedback until threshold is reached.
+- **Observability built in** — every step emits lifecycle events with OTel-compatible trace/span IDs. Wire up Slack alerts, PagerDuty, dashboards, or audit trails.
+- **Resilient by default** — retry with exponential-jitter backoff, parallel execution with concurrency limits, conditional branching, and pipeline-level error strategies.
+
+**Who it's for**: AI developers building multi-agent workflows — dev bots, content pipelines, deployment automation, data processing — on any platform.
+
 ## Quick Start
 
 ### 1. Define a pipeline
@@ -140,11 +157,11 @@ squid viz deploy.yaml
 | Type | Description | Key Config |
 |------|-------------|------------|
 | `run` | Execute a shell command | `run: "command"` |
-| `spawn` | Spawn OpenClaw sub-agent | `spawn: { task, agentId, model }` |
-| `gate` | Human approval checkpoint | `gate: { prompt, preview }` |
-| `parallel` | Fan-out concurrent branches | `parallel: { branches, maxConcurrent }` |
+| `spawn` | Spawn AI sub-agent (OpenClaw, Claude Code, OpenCode, custom) | `spawn: { task, agent, model, timeout }` |
+| `gate` | Human approval with structured input + identity | `gate: { prompt, input, requiredApprovers }` |
+| `parallel` | Fan-out concurrent branches | `parallel: { branches, maxConcurrent, merge }` |
 | `loop` | Iterate over array items | `loop: { over, as, steps, maxConcurrent }` |
-| `branch` | Conditional routing | `branch: { conditions: [{ when, steps }] }` |
+| `branch` | Conditional routing | `branch: { conditions: [{ when, steps }], default }` |
 | `transform` | Inline data transformation | `transform: "$step.json.field"` |
 | `pipeline` | Run a sub-pipeline YAML | `pipeline: { file, args }` |
 
@@ -264,7 +281,7 @@ Flow: `write → review → score=50 → RESTART → write(+feedback) → review
 - Previous iteration outputs are available via `$refs` (e.g., `${review.json.feedback}`)
 - After `maxRestarts` exhausted, execution continues forward
 
-See `examples/iterative-refinement.yaml` for a full working example.
+See `skills/squid-pipeline/examples/iterative-refinement.yaml` for a full working example.
 
 ## Sub-Pipeline Composition
 
@@ -292,7 +309,7 @@ steps:
 - Gates inside sub-pipelines propagate up — parent halts too
 - Each sub-pipeline is standalone and independently testable
 
-See `examples/orchestrator.yaml` with `sub-build.yaml`, `sub-test.yaml`, `sub-deploy.yaml`.
+See `skills/squid-pipeline/examples/orchestrator.yaml` with `sub-build.yaml`, `sub-test.yaml`, `sub-deploy.yaml`.
 
 ## Testing
 
@@ -386,6 +403,93 @@ result.assertStepCompleted("deploy");
 ```
 
 See [docs/testing.md](docs/testing.md) for full reference.
+
+## Advanced Gates
+
+Gates go beyond approve/reject — collect structured input, enforce caller identity, and generate chat-friendly short IDs.
+
+### Structured Input
+
+Collect form fields from the approver:
+
+```yaml
+- id: deploy-config
+  type: gate
+  gate:
+    prompt: "Configure deployment"
+    input:
+      - name: environment
+        type: select
+        options: ["staging", "production"]
+      - name: replicas
+        type: number
+        default: 2
+      - name: notify
+        type: boolean
+        default: true
+      - name: version
+        type: string
+        validation: "^\\d+\\.\\d+\\.\\d+$"
+```
+
+Access input values: `$deploy-config.json.input.environment`, `$deploy-config.json.input.replicas`.
+
+### Caller Identity
+
+Restrict who can approve and prevent self-approval:
+
+```yaml
+- id: prod-gate
+  type: gate
+  gate:
+    prompt: "Deploy to production?"
+    requiredApprovers: ["platform-lead", "sre-oncall"]
+    allowSelfApproval: false
+```
+
+### Short Approval IDs
+
+Gates generate 8-character hex IDs (e.g., `a1b2c3d4`) alongside full resume tokens — designed for Telegram/Discord/Slack where button payloads are limited.
+
+```json
+{
+  "shortId": "a1b2c3d4",
+  "prompt": "Deploy myapp to production?",
+  "inputFields": [...]
+}
+```
+
+See `skills/squid-pipeline/examples/advanced-gates.yaml` for a complete example.
+
+## Events / Observability
+
+Pipeline execution emits lifecycle events for monitoring, OTel integration, and audit trails.
+
+```typescript
+import { createEventEmitter } from "squid";
+
+const events = createEventEmitter();
+
+// Listen to all events
+events.on("*", (event) => {
+  console.log(`[${event.type}] ${event.stepId ?? "pipeline"} (${event.duration ?? 0}ms)`);
+});
+
+// Or specific types
+events.on("gate:waiting", (event) => {
+  sendSlackMessage(`Approval needed: ${event.data?.prompt}`);
+});
+
+events.on("step:error", (event) => {
+  alertOncall(`Step ${event.stepId} failed: ${event.data?.error}`);
+});
+
+const result = await runPipeline(pipeline, { events });
+```
+
+**Event types**: `pipeline:start`, `pipeline:complete`, `pipeline:error`, `step:start`, `step:complete`, `step:error`, `step:skip`, `step:retry`, `gate:waiting`, `gate:approved`, `gate:rejected`, `spawn:start`, `spawn:complete`.
+
+**OTel-compatible fields**: Every event has `traceId` (= runId), `spanId`, `parentSpanId`, `timestamp`.
 
 ## Agent Adapters
 
@@ -530,45 +634,84 @@ Options:
 
 ```
 squid/
-├── bin/squid.js          # CLI entry point
+├── bin/squid.js                # CLI entry point
 ├── src/
-│   ├── index.ts               # Public API exports
+│   ├── index.ts                # Public API exports
 │   ├── core/
-│   │   ├── types.ts           # All type definitions (SOLID interfaces)
-│   │   ├── parser.ts          # YAML/JSON → Pipeline
-│   │   ├── runtime.ts         # Pipeline execution engine
-│   │   ├── expressions.ts     # $ref resolution & conditions
-│   │   ├── resume.ts          # Resume token encode/decode
-│   │   ├── graph.ts           # Mermaid visualization
-│   │   └── adapters/          # Pluggable agent adapters
-│   │       ├── registry.ts    # Adapter registration & resolution
-│   │       ├── claude-code.ts # Claude Code CLI adapter
-│   │       ├── opencode.ts    # OpenCode CLI adapter
-│   │       └── setup.ts       # Auto-register built-in adapters
+│   │   ├── types.ts            # All type definitions (SOLID interfaces)
+│   │   ├── parser.ts           # YAML/JSON → Pipeline (with validation)
+│   │   ├── runtime.ts          # Pipeline execution engine
+│   │   ├── expressions.ts      # $ref resolution & conditions
+│   │   ├── resume.ts           # Resume token encode/decode
+│   │   ├── graph.ts            # Mermaid visualization
+│   │   ├── events.ts           # Event emitter (observability)
+│   │   ├── gate-utils.ts       # Gate input validation, short IDs, identity
+│   │   ├── openclaw-adapter.ts # OpenClaw HTTP/CLI adapter
+│   │   ├── index.ts            # Core barrel exports
+│   │   └── adapters/           # Pluggable agent adapters
+│   │       ├── registry.ts     # Adapter registration & resolution
+│   │       ├── claude-code.ts  # Claude Code CLI adapter
+│   │       ├── opencode.ts     # OpenCode CLI adapter
+│   │       ├── setup.ts        # Auto-register built-in adapters
+│   │       └── index.ts        # Adapter barrel exports
 │   ├── cli/
-│   │   └── main.ts            # CLI commands
+│   │   └── main.ts             # CLI commands (run, test, validate, viz, init, resume, dev)
 │   └── testing/
-│       └── index.ts           # TestRunner & mock utilities
-├── examples/
-│   ├── orchestrator.yaml      # Parent pipeline calling sub-pipelines
-│   ├── sub-build.yaml         # Reusable build stage
-│   ├── sub-test.yaml          # Reusable test stage
-│   ├── sub-deploy.yaml        # Reusable deploy stage (with prod gate)
-│   ├── multi-agent-dev.yaml   # 8-agent dev pipeline
-│   ├── video-pipeline.yaml    # Video content creation
-│   ├── simple-deploy.yaml     # Minimal deploy example
-│   ├── iterative-refinement.yaml # Restart/jump-back refinement loop
-│   └── lobster-migration.yaml # Migration guide from Lobster
-├── agent-skill/
-│   └── SKILL.md               # AI agent skill for pipeline authoring
+│       ├── index.ts            # TestRunner & mock utilities
+│       └── yaml-runner.ts      # YAML test runner (sandbox/integration)
+├── docs/
+│   ├── index.md                # Documentation index
+│   ├── getting-started.md      # Install, scaffold, first pipeline
+│   ├── step-types.md           # All 8 step types + events + common options
+│   ├── workflow-patterns.md    # 10 patterns + anti-patterns
+│   ├── testing.md              # YAML tests, TypeScript tests, modes
+│   ├── adapters.md             # OpenClaw, Claude Code, OpenCode, custom
+│   └── migration.md            # Lobster → Squid migration guide
+├── skills/squid-pipeline/      # AI agent skill (Agent Skills standard)
+│   ├── SKILL.md                # Main skill instructions (~225 lines)
+│   ├── references/
+│   │   ├── step-types.md       # Full step type reference
+│   │   ├── patterns.md         # 9 workflow patterns + anti-patterns
+│   │   └── testing.md          # Test modes, assertions, examples
+│   └── examples/
+│       ├── simple-deploy.yaml      # Basic build → test → gate → deploy
+│       ├── simple-deploy.test.yaml # YAML test file (sandbox + integration)
+│       ├── orchestrator.yaml       # Sub-pipeline composition
+│       ├── sub-build.yaml          # Reusable build stage
+│       ├── sub-build.test.yaml     # YAML test file for sub-pipeline
+│       ├── sub-test.yaml           # Reusable test stage
+│       ├── sub-deploy.yaml         # Reusable deploy stage (with prod gate)
+│       ├── multi-agent-dev.yaml    # 8-agent dev pipeline
+│       ├── video-pipeline.yaml     # Content creation with loops
+│       ├── advanced-gates.yaml     # Structured input, identity, short IDs
+│       ├── observability.yaml      # Event hooks, OTel, audit trails
+│       ├── iterative-refinement.yaml # Restart/jump-back refinement loop
+│       └── lobster-migration.yaml  # Migration guide from Lobster
+├── test/                       # Unit tests (326 tests, 15 files)
+│   ├── parser.test.ts          # Parser + validation tests
+│   ├── runtime.test.ts         # Runtime execution tests
+│   ├── expressions.test.ts     # Expression evaluation tests
+│   ├── resume.test.ts          # Resume token tests
+│   ├── graph.test.ts           # Mermaid visualization tests
+│   ├── gate-features.test.ts   # Structured input, events, identity, short IDs
+│   ├── restart.test.ts         # Restart/jump-back tests
+│   ├── adapters.test.ts        # Adapter registry tests
+│   ├── adapter-claude-code.test.ts # Claude Code adapter (mocked)
+│   ├── adapter-opencode.test.ts    # OpenCode adapter (mocked)
+│   ├── testing.test.ts         # TestRunner tests
+│   ├── yaml-runner.test.ts     # YAML test runner tests
+│   ├── edge-cases.test.ts      # Default adapter, error paths
+│   ├── syntax-gaps.test.ts     # Example syntax coverage
+│   └── validation.test.ts      # Enum/numeric validation tests
 ├── package.json
 ├── tsconfig.json
+├── vitest.config.ts            # Test config with coverage thresholds
 └── README.md
 ```
 
 ## AI Agent Skill
 
-Squid ships with an **agent skill file** at [`agent-skill/SKILL.md`](agent-skill/SKILL.md) — a comprehensive reference that teaches any AI agent how to correctly author pipelines.
+Squid ships with an **agent skill file** at [`skills/squid-pipeline/SKILL.md`](skills/squid-pipeline/SKILL.md) — a comprehensive reference that teaches any AI agent how to correctly author pipelines.
 
 Feed it to the AI agent of your choice:
 
@@ -580,7 +723,7 @@ Feed it to the AI agent of your choice:
       task: "Create a deployment pipeline for my Node.js app"
       attachments:
         - name: SKILL.md
-          content: <contents of agent-skill/SKILL.md>
+          content: <contents of skills/squid-pipeline/SKILL.md>
           mimeType: text/markdown
   ```
 - **Claude (claude.ai)** — paste `SKILL.md` into the Project Knowledge or as a conversation attachment

@@ -6,3 +6,5 @@ export * from "./resume.js";
 export * from "./graph.js";
 export * from "./openclaw-adapter.js";
 export * from "./adapters/index.js";
+export * from "./events.js";
+export * from "./gate-utils.js";

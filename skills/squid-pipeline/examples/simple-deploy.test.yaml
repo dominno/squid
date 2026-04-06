@@ -1,5 +1,5 @@
 # Tests for simple-deploy.yaml
-# Run: squid test examples/simple-deploy.test.yaml
+# Run: squid test squid-pipeline/examples/simple-deploy.test.yaml
 
 pipeline: ./simple-deploy.yaml
 

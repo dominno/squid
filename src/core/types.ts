@@ -107,6 +107,24 @@ export interface GateConfig {
   autoApprove?: boolean;           // Skip in CI/test mode
   timeout?: number;                // Auto-reject after N seconds
   approvers?: string[];            // Required approver IDs
+
+  // Structured input — form fields beyond approve/reject
+  input?: GateInputField[];        // Form fields to collect from approver
+
+  // Caller identity
+  requiredApprovers?: string[];    // IDs that MUST approve (stricter than approvers)
+  allowSelfApproval?: boolean;     // Can the initiator approve? (default: false)
+}
+
+export interface GateInputField {
+  name: string;                    // Field name (becomes key in output)
+  type: "string" | "number" | "boolean" | "select";
+  label?: string;                  // Display label
+  description?: string;            // Help text
+  required?: boolean;              // Must be provided (default: true)
+  default?: unknown;               // Default value
+  options?: string[];              // For type: "select" — allowed values
+  validation?: string;             // Regex pattern for type: "string"
 }
 
 // ─── Parallel (Fan-out / Fan-in) ──────────────────────────────────────
@@ -216,11 +234,13 @@ export interface PipelineContext {
   cwd: string;
   sourceDir?: string;              // Directory of the pipeline source file
   agent?: string;                  // Default agent adapter name for this pipeline
+  initiatedBy?: string;            // Who started this pipeline run
   results: Map<string, StepResult>;
   state: Map<string, unknown>;     // User-managed state
   mode: ExecutionMode;
   signal?: AbortSignal;
   hooks: PipelineHooks;
+  events: PipelineEventEmitter;    // Observability event emitter
 }
 
 export type ExecutionMode =
@@ -236,11 +256,56 @@ export interface PipelineHooks {
   onStepStart?: (step: Step, ctx: PipelineContext) => Promise<void>;
   onStepComplete?: (step: Step, result: StepResult, ctx: PipelineContext) => Promise<void>;
   onStepError?: (step: Step, error: StepError, ctx: PipelineContext) => Promise<void>;
-  onGateReached?: (step: Step, gate: GateConfig, ctx: PipelineContext) => Promise<boolean>;
+  onGateReached?: (step: Step, gate: GateConfig, ctx: PipelineContext) => Promise<boolean | GateDecision>;
   onSpawn?: (step: Step, spawn: SpawnConfig, ctx: PipelineContext) => Promise<SpawnResult>;
   onRun?: (step: Step, command: string, ctx: PipelineContext) => Promise<StepResult | null>;
   onPipelineStart?: (pipeline: Pipeline, ctx: PipelineContext) => Promise<void>;
   onPipelineComplete?: (pipeline: Pipeline, results: Map<string, StepResult>, ctx: PipelineContext) => Promise<void>;
+}
+
+/** Structured gate decision — returned by onGateReached hook */
+export interface GateDecision {
+  approved: boolean;
+  input?: Record<string, unknown>;  // Structured input field values
+  approvedBy?: string;              // Who made the decision
+}
+
+// ─── Event Emitter (Observability) ────────────────────────────────────
+
+export type PipelineEventType =
+  | "pipeline:start"
+  | "pipeline:complete"
+  | "pipeline:error"
+  | "step:start"
+  | "step:complete"
+  | "step:error"
+  | "step:retry"
+  | "step:skip"
+  | "gate:waiting"
+  | "gate:approved"
+  | "gate:rejected"
+  | "spawn:start"
+  | "spawn:complete";
+
+export interface PipelineEvent {
+  type: PipelineEventType;
+  timestamp: number;               // Unix ms
+  pipelineId: string;
+  runId: string;
+  stepId?: string;
+  stepType?: StepType;
+  duration?: number;               // ms (for :complete events)
+  data?: Record<string, unknown>;  // Event-specific payload
+  // OTel-compatible fields
+  traceId?: string;                // Same as runId
+  spanId?: string;                 // Unique per event
+  parentSpanId?: string;           // Pipeline's span ID
+}
+
+export interface PipelineEventEmitter {
+  emit(event: PipelineEvent): void;
+  on(type: PipelineEventType | "*", handler: (event: PipelineEvent) => void): void;
+  off(type: PipelineEventType | "*", handler: (event: PipelineEvent) => void): void;
 }
 
 // ─── Agent Adapter (Pluggable Agent Runtimes) ────────────────────────
@@ -278,6 +343,10 @@ export interface ResumeToken {
   completedResults: Record<string, StepResult>;
   args: Record<string, unknown>;
   gateDecision?: boolean;          // Approval decision for gate step
+  gateInput?: Record<string, unknown>; // Structured input from approver
+  approvedBy?: string;             // Who approved/rejected
+  initiatedBy?: string;            // Who started the pipeline
+  shortId?: string;                // 8-char hex short ID for chat platforms
   createdAt: number;
 }
 

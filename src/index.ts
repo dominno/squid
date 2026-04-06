@@ -14,6 +14,8 @@ export type {
   StepStatus,
   SpawnConfig,
   GateConfig,
+  GateInputField,
+  GateDecision,
   ParallelConfig,
   LoopConfig,
   BranchConfig,
@@ -22,6 +24,9 @@ export type {
   PipelineRefConfig,
   PipelineContext,
   PipelineHooks,
+  PipelineEvent,
+  PipelineEventType,
+  PipelineEventEmitter,
   AgentAdapter,
   OpenClawAdapter,
   SpawnResult,
@@ -45,6 +50,20 @@ export { resolveRef, interpolate, evaluateCondition } from "./core/expressions.j
 
 // Resume
 export { encodeResumeToken, decodeResumeToken } from "./core/resume.js";
+
+// Events
+export { createEventEmitter, createNoopEmitter, createEvent } from "./core/events.js";
+
+// Gate Utilities
+export {
+  generateShortId,
+  registerShortId,
+  resolveShortId,
+  clearShortIds,
+  validateGateInput,
+  validateApprover,
+  type GateValidationResult,
+} from "./core/gate-utils.js";
 
 // Visualization
 export { buildGraph, toMermaid } from "./core/graph.js";

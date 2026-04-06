@@ -5,7 +5,7 @@
 # to the writing step — up to maxRestarts times.
 #
 # Usage:
-#   squid run examples/iterative-refinement.yaml \
+#   squid run squid-pipeline/examples/iterative-refinement.yaml \
 #     --args-json '{"task": "implement a rate limiter", "threshold": 80}'
 
 name: iterative-refinement

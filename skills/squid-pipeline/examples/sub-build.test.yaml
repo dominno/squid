@@ -1,6 +1,6 @@
 # Tests for sub-build.yaml
 # Demonstrates both sandbox and integration modes
-# Run: squid test examples/sub-build.test.yaml
+# Run: squid test squid-pipeline/examples/sub-build.test.yaml
 
 pipeline: ./sub-build.yaml
 

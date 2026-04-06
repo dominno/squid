@@ -14,6 +14,7 @@ import { resolve, dirname } from "node:path";
 import { createRequire } from "node:module";
 import { parseFile } from "../core/parser.js";
 import { runPipeline, type RunResult } from "../core/runtime.js";
+import { createNoopEmitter } from "../core/events.js";
 import type {
   Pipeline,
   Step,
@@ -167,6 +168,7 @@ async function runTestCase(
       mode,
       hooks,
       adapter,
+      events: createNoopEmitter(),
     });
   } catch (err) {
     return {

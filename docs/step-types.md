@@ -104,6 +104,66 @@ Human-in-the-loop approval gates. The pipeline halts and outputs a resume token.
     autoApprove: true   # Skip in CI/test mode
 ```
 
+### Structured input
+
+Collect form fields from the approver — not just approve/reject:
+
+```yaml
+- id: deploy-config
+  type: gate
+  gate:
+    prompt: "Configure deployment"
+    input:
+      - name: environment
+        type: select                   # string | number | boolean | select
+        label: Target environment
+        options: ["staging", "production"]
+      - name: replicas
+        type: number
+        label: Pod replicas
+        default: 2
+      - name: run_migrations
+        type: boolean
+        default: false
+      - name: version
+        type: string
+        validation: "^\\d+\\.\\d+\\.\\d+$"  # regex validation
+```
+
+Access input values in subsequent steps: `$deploy-config.json.input.environment`, `$deploy-config.json.input.replicas`.
+
+Input is validated on resume — type mismatches, missing required fields, and regex failures are rejected.
+
+### Caller identity
+
+Restrict who can approve and prevent self-approval:
+
+```yaml
+- id: prod-gate
+  type: gate
+  gate:
+    prompt: "Deploy to production?"
+    requiredApprovers: ["platform-lead", "sre-oncall"]
+    allowSelfApproval: false
+```
+
+- `requiredApprovers`: Only these IDs can approve. If the approver is not in the list, the gate is rejected.
+- `allowSelfApproval: false`: The person who started the pipeline cannot approve their own gate.
+- Access the approver's identity: `$gate.json.approvedBy`.
+
+### Short approval IDs
+
+Gates generate an 8-character hex ID (e.g., `a1b2c3d4`) alongside the full resume token. Designed for chat platforms where button payloads are limited (Telegram: 64 bytes, Discord: 100 chars).
+
+The short ID is included in the gate output:
+
+```json
+{
+  "shortId": "a1b2c3d4",
+  "prompt": "Deploy myapp to production?"
+}
+```
+
 **Resuming**: When halted, the pipeline outputs a resume token:
 
 ```bash
@@ -325,7 +385,7 @@ squid run sub-build.yaml --args-json '{"target":"prod"}'
 ### Real-world example: Release orchestrator
 
 ```
-examples/
+skills/squid-pipeline/examples/
   orchestrator.yaml   ← parent: calls all three sub-pipelines
   sub-build.yaml      ← build: compile + lint
   sub-test.yaml       ← test: unit + integration + coverage
@@ -383,6 +443,87 @@ Running `squid run orchestrator.yaml -v` executes all sub-pipelines in sequence,
 ```
 
 With `--args-json '{"env":"prod"}'`, the deploy sub-pipeline's prod gate activates and the whole orchestrator halts for approval.
+
+---
+
+## Events / Observability
+
+Every step emits lifecycle events for monitoring, OTel integration, audit trails, and notifications.
+
+### Event types
+
+| Event | When | Useful data |
+|-------|------|-------------|
+| `pipeline:start` | Pipeline begins | `args`, `mode` |
+| `pipeline:complete` | Pipeline finishes | `status`, `duration` |
+| `pipeline:error` | Pipeline throws | `error` |
+| `step:start` | Step begins executing | `stepId`, `stepType` |
+| `step:complete` | Step finishes | `stepId`, `status`, `duration` |
+| `step:error` | Step fails | `stepId`, `error` |
+| `step:skip` | Step skipped (condition false) | `stepId`, `reason` |
+| `step:retry` | Step retrying after failure | `stepId`, `attempt` |
+| `gate:waiting` | Gate halts for approval | `stepId`, `prompt`, `shortId` |
+| `gate:approved` | Gate approved | `stepId`, `approvedBy` |
+| `gate:rejected` | Gate rejected | `stepId` |
+| `spawn:start` | Agent spawn initiated | `stepId` |
+| `spawn:complete` | Agent spawn finished | `stepId` |
+
+### OTel-compatible fields
+
+Every event includes:
+
+| Field | Description |
+|-------|-------------|
+| `traceId` | Same as `runId` — correlates all events in one pipeline run |
+| `spanId` | Unique per event |
+| `parentSpanId` | Pipeline's span ID |
+| `timestamp` | Unix milliseconds |
+| `pipelineId` | Pipeline name |
+| `runId` | Unique run ID |
+
+### TypeScript usage
+
+```typescript
+import { createEventEmitter, runPipeline, parseFile } from "squid";
+
+const events = createEventEmitter();
+
+// Log all events (wildcard)
+events.on("*", (event) => {
+  console.log(`[${event.type}] ${event.stepId ?? "pipeline"} (${event.duration ?? 0}ms)`);
+});
+
+// Specific event types
+events.on("gate:waiting", (event) => {
+  sendSlackMessage(`Approval needed: ${event.data?.prompt} (ID: ${event.data?.shortId})`);
+});
+
+events.on("step:error", (event) => {
+  alertOncall(`Step ${event.stepId} failed: ${event.data?.error}`);
+});
+
+// OTel spans
+events.on("step:complete", (event) => {
+  tracer.startSpan(event.stepId!, {
+    traceId: event.traceId,
+    spanId: event.spanId,
+    attributes: { duration: event.duration, status: event.data?.status },
+  });
+});
+
+const pipeline = parseFile("pipeline.yaml");
+const result = await runPipeline(pipeline, { events });
+```
+
+### Removing listeners
+
+```typescript
+const handler = (event) => console.log(event);
+events.on("step:start", handler);
+events.off("step:start", handler);   // remove specific listener
+```
+
+See `skills/squid-pipeline/examples/observability.yaml` for a full pipeline example with event documentation.
 
 ---
 

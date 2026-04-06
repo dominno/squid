@@ -3,9 +3,9 @@
 # Deploys a given artifact to a target environment.
 # Includes a safety gate for production.
 #
-# Standalone:  squid run examples/sub-deploy.yaml \
+# Standalone:  squid run squid-pipeline/examples/sub-deploy.yaml \
 #                --args-json '{"artifact":"app-prod.tar.gz","env":"staging"}'
-# As sub-step: See examples/orchestrator.yaml
+# As sub-step: See squid-pipeline/examples/orchestrator.yaml
 
 name: deploy
 description: Deploy artifact to target environment
