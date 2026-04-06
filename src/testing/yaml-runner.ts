@@ -94,6 +94,74 @@ export interface TestCaseResult {
   duration: number;
 }
 
+// ─── Validation ──────────────────────────────────────────────────────
+
+const VALID_MOCK_KEYS = new Set(["run", "spawn"]);
+const VALID_RUN_STATUS = new Set(["completed", "failed"]);
+const VALID_SPAWN_STATUS = new Set(["accepted", "error"]);
+const VALID_TEST_MODES = new Set(["sandbox", "integration"]);
+
+function validateTestFile(testFile: TestFile, filePath: string): void {
+  if (!testFile.pipeline) {
+    throw new Error(`Test file must have a 'pipeline' field: ${filePath}`);
+  }
+  if (!Array.isArray(testFile.tests) || testFile.tests.length === 0) {
+    throw new Error(`Test file must have a 'tests' array: ${filePath}`);
+  }
+
+  for (let i = 0; i < testFile.tests.length; i++) {
+    const test = testFile.tests[i];
+    const prefix = `tests[${i}] "${test.name ?? `#${i}`}"`;
+
+    if (!test.name) {
+      throw new Error(`${prefix}: test must have a 'name' field`);
+    }
+
+    if (test.mode && !VALID_TEST_MODES.has(test.mode)) {
+      throw new Error(`${prefix}: invalid mode '${test.mode}' (must be 'sandbox' or 'integration')`);
+    }
+
+    if (!test.assert) {
+      throw new Error(`${prefix}: test must have an 'assert' field`);
+    }
+
+    // Validate mock keys
+    if (test.mocks) {
+      const unknownKeys = Object.keys(test.mocks).filter(k => !VALID_MOCK_KEYS.has(k));
+      if (unknownKeys.length > 0) {
+        throw new Error(
+          `${prefix}: unknown mock keys: ${unknownKeys.map(k => `'${k}'`).join(", ")}. ` +
+          `Only 'run' and 'spawn' are supported. Use 'gates' (top-level) for gate mocks.`
+        );
+      }
+
+      // Validate run mock status values
+      if (test.mocks.run) {
+        for (const [stepId, mock] of Object.entries(test.mocks.run)) {
+          if (mock.status && !VALID_RUN_STATUS.has(mock.status)) {
+            throw new Error(
+              `${prefix}: mocks.run.${stepId}.status = '${mock.status}' is invalid. ` +
+              `Must be 'completed' or 'failed'.`
+            );
+          }
+        }
+      }
+
+      // Validate spawn mock status values
+      if (test.mocks.spawn) {
+        for (const [stepId, mock] of Object.entries(test.mocks.spawn)) {
+          if (mock.status && !VALID_SPAWN_STATUS.has(mock.status)) {
+            throw new Error(
+              `${prefix}: mocks.spawn.${stepId}.status = '${mock.status}' is invalid. ` +
+              `Must be 'accepted' or 'error' (not 'failed' — that is for run mocks).`
+            );
+          }
+        }
+      }
+    }
+  }
+}
+
 // ─── Runner ───────────────────────────────────────────────────────────
 
 export async function runTestFile(testFilePath: string): Promise<TestSuiteResult> {
@@ -106,12 +174,8 @@ export async function runTestFile(testFilePath: string): Promise<TestSuiteResult
   const yaml = loadYaml();
   const testFile = yaml.parse(raw) as TestFile;
 
-  if (!testFile.pipeline) {
-    throw new Error(`Test file must have a 'pipeline' field: ${absPath}`);
-  }
-  if (!Array.isArray(testFile.tests) || testFile.tests.length === 0) {
-    throw new Error(`Test file must have a 'tests' array: ${absPath}`);
-  }
+  // Validate test file structure and mock syntax
+  validateTestFile(testFile, absPath);
 
   // Load pipeline
   const pipelinePath = resolve(testDir, testFile.pipeline);

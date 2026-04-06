@@ -3,6 +3,26 @@ name: squid-pipeline
 description: Create, modify, and debug agentic pipelines with Squid. Define multi-agent YAML workflows with spawn (OpenClaw, Claude Code, OpenCode), gates, parallel execution, loops, branching, restart loops, sub-pipelines, and structured approvals. Use when working with .yaml pipeline files or when the user mentions pipelines, workflows, agents, or Squid.
 ---
 
+## Required Reading — Reference Files
+
+This skill includes reference docs and working examples. **You MUST read the relevant files before generating pipelines or tests.** SKILL.md alone is not sufficient — the references contain critical syntax details.
+
+**BEFORE creating or modifying any pipeline**, read:
+- `references/step-types.md` — Full config for every step type (run, spawn, gate, parallel, loop, branch, transform, pipeline). Contains exact field names, types, and valid values.
+- `references/patterns.md` — Validated workflow patterns with complete YAML examples. Use these as templates.
+
+**BEFORE creating or modifying any test file**, read:
+- `references/testing.md` — Full test file schema, mock syntax, assertion types, mode behaviors. Contains exact valid field names and values.
+
+**BEFORE writing a pipeline that matches an example pattern**, read the matching example:
+- `examples/simple-deploy.yaml` + `examples/simple-deploy.test.yaml` — Basic pipeline with tests
+- `examples/multi-agent-dev.yaml` — Multi-agent with parallel branches
+- `examples/iterative-refinement.yaml` — Restart loop pattern
+- `examples/advanced-gates.yaml` — Structured gate input
+- `examples/orchestrator.yaml` — Sub-pipeline composition
+
+All paths are relative to this skill directory.
+
 ## Install
 
 If Squid is not installed, install it first:
@@ -110,7 +130,7 @@ steps:
 | `transform` | `transform: "$ref"` | Data shaping (R7: JSON templates only, no JS expressions) |
 | `pipeline` | `pipeline: { file, args }` | Sub-pipeline |
 
-See `references/step-types.md` for full config options and examples.
+**You MUST read `references/step-types.md` before using any step type** — it contains exact field names, valid values, and required options not shown above.
 
 ## Spawn — Agent Adapters
 
@@ -191,7 +211,7 @@ Interpolation: `${args.key}`, `${stepId.json.field}` in strings.
 
 **Retry on network calls** (R4): Any `run` step hitting an external API (GitHub, Slack, HTTP) MUST have `retry`.
 
-See `references/patterns.md` for full examples.
+**Read `references/patterns.md` for complete YAML examples** of each pattern before implementing.
 
 ## Examples
 
@@ -221,8 +241,6 @@ tests:
     mocks:
       run:
         build: { output: { built: true } }
-      spawn:
-        reviewer: { output: { score: 95 } }
     gates:
       approve: true
     assert:
@@ -234,13 +252,55 @@ tests:
 Modes: `sandbox` (all mocked) | `integration` (run steps execute).
 Run: `squid test` (auto-discovers) or `squid test file.test.yaml`.
 
-**Required test coverage (R8):**
-1. Happy path — all approved, all succeed
-2. Gate rejection — side-effect steps skipped
-3. Step failure — error propagation correct
-4. Restart exhaustion — if `restart:` used, test what happens when threshold is never met
+### Test YAML syntax rules — MUST follow exactly
 
-See `references/testing.md` for assertion types and examples.
+**Supported mock types — ONLY these two exist:**
+```yaml
+mocks:
+  run:                             # Mock run steps
+    stepId:
+      output: { key: value }      # JSON output (parsed as $stepId.json)
+      stdout: "raw text"          # Raw stdout ($stepId.stdout)
+      status: completed            # "completed" | "failed" — ONLY these two values
+      error: "message"
+  spawn:                           # Mock spawn steps
+    stepId:
+      output: { key: value }      # JSON output
+      status: accepted             # "accepted" | "error" — ONLY these two values
+      error: "message"
+```
+
+**NEVER use these — they do NOT exist and are silently ignored:**
+- `mocks.pipeline` — does NOT exist. Sub-pipeline steps run normally (their internal steps get sandbox defaults).
+- `mocks.branch` — does NOT exist.
+- `mocks.loop` — does NOT exist.
+- `mocks.transform` — does NOT exist.
+- `mocks.gate` — does NOT exist. Use `gates:` top-level key instead.
+
+**Spawn mock status values:**
+- Use `status: error` to simulate spawn failure (NOT `status: failed` — that is for run mocks only)
+- Use `status: accepted` for success (default if omitted)
+
+**Sandbox vs integration mode behavior:**
+- `sandbox`: Run mocks work via `onRun` hook. **Spawn mocks are IGNORED** — spawns go to the mock adapter which always returns `{mocked: true}`. Use `integration` mode if you need spawn mocks to work.
+- `integration`: Run steps execute for real (unless mocked). Spawn mocks work via `onSpawn` hook.
+
+**Gate behavior in tests:**
+- `gates: { stepId: true }` → gate approved, step status = `"completed"`, `$stepId.approved` = true
+- `gates: { stepId: false }` → gate rejected, step status = `"skipped"`, `$stepId.approved` = false
+- Unmocked gates are auto-approved
+
+**Sub-pipeline steps in tests:**
+- Cannot be mocked directly. The sub-pipeline file is loaded and its steps run in the current test mode.
+- To control sub-pipeline behavior, mock its internal `run` steps by their step IDs, or use sandbox mode where unmocked run steps return `{sandbox: true}`.
+
+### Required test coverage (R8):
+1. Happy path — all approved, all succeed
+2. Gate rejection — assert side-effect steps are `skipped`
+3. No-data path — assert conditional steps are `skipped` when `when:` evaluates false
+4. Restart exhaustion — if `restart:` used, test behavior when threshold is never met
+
+**You MUST read `references/testing.md` before writing any test file** — it contains the full assertion schema and mode behavior details.
 
 ## Events / Observability
 
@@ -261,7 +321,7 @@ await runPipeline(parseFile("pipeline.yaml"), { events });
 
 **OTel-compatible**: every event has `traceId`, `spanId`, `timestamp`, `duration`.
 
-See `references/step-types.md` and `examples/observability.yaml` for details.
+Read `references/step-types.md` (Events section) and `examples/observability.yaml` for implementation details.
 
 ## CLI
 
