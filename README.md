@@ -296,7 +296,78 @@ See `examples/orchestrator.yaml` with `sub-build.yaml`, `sub-test.yaml`, `sub-de
 
 ## Testing
 
-Built-in mock support — no agent runtime (OpenClaw, Claude Code, etc.) needed for tests:
+Two ways to test pipelines — no agent runtime needed.
+
+### YAML Tests (recommended)
+
+Write tests alongside your pipelines in `.test.yaml` files:
+
+```yaml
+# deploy.test.yaml
+pipeline: ./deploy.yaml
+
+tests:
+  - name: "deploys when approved"
+    mode: sandbox                  # nothing executes — pure logic test
+    args: { env: staging, image: "app:v2" }
+    mocks:
+      run:
+        build: { output: { built: true } }
+        test: { output: { passed: true } }
+      spawn:
+        reviewer: { output: { score: 95 } }
+    gates:
+      approve: true
+    assert:
+      status: completed
+      steps:
+        deploy: completed
+
+  - name: "skips deploy when rejected"
+    mode: sandbox
+    gates:
+      approve: false
+    assert:
+      steps:
+        deploy: skipped
+
+  - name: "scripts actually run"
+    mode: integration              # run steps execute, spawn steps mocked
+    assert:
+      status: completed
+```
+
+Run with:
+
+```bash
+squid test                         # auto-discovers all *.test.yaml files
+squid test deploy.test.yaml        # run specific test file
+```
+
+**Two test modes:**
+
+| Mode | `run` steps | `spawn` steps | `gate` steps |
+|------|------------|---------------|--------------|
+| **`sandbox`** | Mocked (nothing executes) | Mocked | Mock decisions |
+| **`integration`** | Execute for real | Mocked | Mock decisions |
+
+**Assertions:**
+
+```yaml
+assert:
+  status: completed                           # pipeline status
+  output: { deployed: true }                  # pipeline output
+  steps:
+    build: completed                          # step status (shorthand)
+    review: { status: completed }             # step status (object)
+    review: { output: { score: 95 } }         # exact output match
+    review: { outputContains: "score" }        # output contains string
+    review: { outputPath: score, equals: 95 }  # nested field check
+```
+
+### TypeScript Tests
+
+For programmatic testing with vitest/jest:
 
 ```typescript
 import { createTestRunner } from "squid/testing";
@@ -313,6 +384,8 @@ const result = await createTestRunner()
 result.assertStepCompleted("build");
 result.assertStepCompleted("deploy");
 ```
+
+See [docs/testing.md](docs/testing.md) for full reference.
 
 ## Agent Adapters
 
@@ -428,6 +501,7 @@ See [docs/adapters.md](docs/adapters.md) for full setup instructions for each ad
 ```
 squid run <file> [options]       Execute a pipeline
 squid resume <file> [options]    Resume a halted pipeline
+squid test [file.test.yaml]      Run pipeline tests (auto-discovers *.test.yaml)
 squid validate <file>            Validate pipeline syntax
 squid viz <file>                 Output Mermaid diagram
 squid dev <file>                 Watch mode (dry-run on save)

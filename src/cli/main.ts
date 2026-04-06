@@ -17,6 +17,7 @@ import { parseFile } from "../core/parser.js";
 import { runPipeline, type RunOptions, type RunResult } from "../core/runtime.js";
 import { decodeResumeToken, encodeResumeToken } from "../core/resume.js";
 import { buildGraph, toMermaid } from "../core/graph.js";
+import { runTestFile, type TestSuiteResult } from "../testing/yaml-runner.js";
 
 async function main() {
   const args = process.argv.slice(2);
@@ -41,6 +42,9 @@ async function main() {
       break;
     case "init":
       cmdInit(args.slice(1));
+      break;
+    case "test":
+      await cmdTest(args.slice(1));
       break;
     case "help":
     case "--help":
@@ -497,6 +501,63 @@ steps:
     transform: '{"pipeline":"{{name}}", "target":"\${args.target}", "status":"complete"}'
 `;
 
+// ─── Test ─────────────────────────────────────────────────────────────
+
+async function cmdTest(args: string[]) {
+  const { Glob } = await import("glob");
+
+  // Find test files: explicit args or auto-discover *.test.yaml
+  let testFiles: string[];
+  if (args.length > 0 && !args[0].startsWith("-")) {
+    testFiles = args.filter((a) => !a.startsWith("-"));
+  } else {
+    const glob = new Glob("**/*.test.yaml", { ignore: "node_modules/**" });
+    testFiles = [];
+    for await (const file of glob) {
+      testFiles.push(file);
+    }
+    if (testFiles.length === 0) {
+      console.error("No *.test.yaml files found");
+      process.exit(1);
+    }
+  }
+
+  let totalPassed = 0;
+  let totalFailed = 0;
+  const suiteResults: TestSuiteResult[] = [];
+
+  for (const file of testFiles) {
+    console.error(`\n  ${file}`);
+    try {
+      const suite = await runTestFile(file);
+      suiteResults.push(suite);
+
+      for (const tc of suite.results) {
+        const icon = tc.passed ? "  \x1b[32m✓\x1b[0m" : "  \x1b[31m✗\x1b[0m";
+        console.error(`${icon} ${tc.name} (${tc.duration}ms)`);
+        for (const err of tc.errors) {
+          console.error(`    \x1b[31m${err}\x1b[0m`);
+        }
+      }
+
+      totalPassed += suite.passed;
+      totalFailed += suite.failed;
+    } catch (err) {
+      console.error(`  \x1b[31m✗ Failed to run: ${err instanceof Error ? err.message : err}\x1b[0m`);
+      totalFailed++;
+    }
+  }
+
+  // Summary
+  console.error(`\n  ${suiteResults.length} suite(s), ${totalPassed + totalFailed} test(s)`);
+  if (totalFailed > 0) {
+    console.error(`  \x1b[31m${totalFailed} failed\x1b[0m, \x1b[32m${totalPassed} passed\x1b[0m`);
+    process.exit(1);
+  } else {
+    console.error(`  \x1b[32m${totalPassed} passed\x1b[0m`);
+  }
+}
+
 // ─── Output ───────────────────────────────────────────────────────────
 
 function printResult(result: RunResult) {
@@ -535,6 +596,7 @@ Usage:
   squid validate <pipeline.yaml>         Validate syntax
   squid visualize <pipeline.yaml>        Output Mermaid diagram
   squid dev <pipeline.yaml>              Watch mode (dry-run on save)
+  squid test [file.test.yaml]            Run pipeline tests (auto-discovers *.test.yaml)
   squid init [options]                   Scaffold a new pipeline
 
 Init templates:

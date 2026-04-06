@@ -223,7 +223,12 @@ export interface PipelineContext {
   hooks: PipelineHooks;
 }
 
-export type ExecutionMode = "run" | "dry-run" | "test";
+export type ExecutionMode =
+  | "run"            // Real execution — everything runs
+  | "dry-run"        // Show what would execute, nothing runs
+  | "test"           // Legacy: spawn mocked, gates auto-approved, run steps execute
+  | "sandbox"        // Full isolation: run/spawn/gate all mocked — nothing executes
+  | "integration";   // Run steps execute, spawn mocked, gates use mock decisions
 
 // ─── Hooks (Extension Points) ─────────────────────────────────────────
 
@@ -233,6 +238,7 @@ export interface PipelineHooks {
   onStepError?: (step: Step, error: StepError, ctx: PipelineContext) => Promise<void>;
   onGateReached?: (step: Step, gate: GateConfig, ctx: PipelineContext) => Promise<boolean>;
   onSpawn?: (step: Step, spawn: SpawnConfig, ctx: PipelineContext) => Promise<SpawnResult>;
+  onRun?: (step: Step, command: string, ctx: PipelineContext) => Promise<StepResult | null>;
   onPipelineStart?: (pipeline: Pipeline, ctx: PipelineContext) => Promise<void>;
   onPipelineComplete?: (pipeline: Pipeline, results: Map<string, StepResult>, ctx: PipelineContext) => Promise<void>;
 }

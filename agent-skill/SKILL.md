@@ -786,34 +786,94 @@ Branch based on step results:
 
 ## Testing Pipelines
 
-Every pipeline should be testable without a live OpenClaw instance.
+Every pipeline should have tests. No agent runtime needed — everything is mockable.
+
+### YAML Tests (recommended)
+
+Create `pipeline.test.yaml` next to your `pipeline.yaml`:
+
+```yaml
+pipeline: ./pipeline.yaml
+
+tests:
+  - name: "deploys when approved"
+    mode: sandbox                  # nothing executes
+    args:
+      env: staging
+    mocks:
+      run:
+        build: { output: { built: true } }
+      spawn:
+        reviewer: { output: { score: 95 } }
+    gates:
+      approve: true
+    assert:
+      status: completed
+      steps:
+        deploy: completed
+
+  - name: "skips deploy when rejected"
+    mode: sandbox
+    gates:
+      approve: false
+    assert:
+      steps:
+        deploy: skipped
+
+  - name: "real scripts run correctly"
+    mode: integration              # run steps execute for real
+    mocks:
+      spawn:
+        reviewer: { output: { score: 90 } }
+    gates:
+      approve: true
+    assert:
+      status: completed
+```
+
+Run with `squid test` or `squid test pipeline.test.yaml`.
+
+### Test modes
+
+| Mode | `run` steps | `spawn` steps | `gate` steps |
+|------|------------|---------------|--------------|
+| **`sandbox`** | Mocked (nothing executes) | Mocked | Mock decisions |
+| **`integration`** | Execute for real (unless mocked) | Mocked | Mock decisions |
+
+### Assertions
+
+```yaml
+assert:
+  status: completed                              # pipeline status
+  output: { key: value }                         # pipeline output
+  steps:
+    build: completed                             # step status shorthand
+    build: { status: completed }                 # step status object
+    build: { output: { image: "v2" } }           # exact output match
+    build: { outputContains: "image" }           # contains substring
+    build: { outputPath: version, equals: "2" }  # nested field
+```
+
+### TypeScript alternative
 
 ```typescript
 import { createTestRunner } from "squid/testing";
 import { parseFile } from "squid";
 
-const pipeline = parseFile("my-pipeline.yaml");
-
 const result = await createTestRunner()
-  .mockSpawn("research", { output: { findings: ["a", "b"] } })
-  .mockSpawn("coder", { output: { files: ["app.ts"] } })
-  .approveGate("review")
-  .rejectGate("dangerous-gate")
-  .withArgs({ env: "test", feature: "auth" })
-  .withEnv({ API_KEY: "test-key" })
-  .run(pipeline);
+  .mockSpawn("reviewer", { output: { score: 95 } })
+  .approveGate("approve")
+  .withArgs({ env: "test" })
+  .run(parseFile("pipeline.yaml"));
 
-// Assertions
-expect(result.status).toBe("completed");
-result.assertStepCompleted("research");
-result.assertStepCompleted("coder");
-result.assertStepSkipped("dangerous-gate-action");
+result.assertStepCompleted("deploy");
 ```
 
-**When writing pipelines, also write tests:**
-- Test the happy path (all spawns succeed, all gates approved).
-- Test rejection paths (reject gates → verify subsequent steps skip).
-- Test error handling (override steps with failures → verify branch routing).
+**When writing pipelines, always write tests:**
+- Test the happy path (all spawns succeed, all gates approved)
+- Test rejection paths (reject gates → verify steps skip)
+- Test error handling (mock steps as failed → verify branch routing)
+- Test restart loops (mock improving scores across iterations)
 
 ---
 
@@ -822,9 +882,10 @@ result.assertStepSkipped("dangerous-gate-action");
 ```bash
 squid run <file> [--args-json '{}'] [--dry-run] [--test] [-v]
 squid resume <file> --token <token> --approve yes|no
+squid test [file.test.yaml]            # run pipeline tests
 squid validate <file>
-squid viz <file>                    # outputs Mermaid diagram
-squid dev <file>                    # watch mode
+squid viz <file>                       # Mermaid diagram
+squid dev <file>                       # watch mode
 squid init --template <t> --name <n>   # basic | agent | parallel | full
 ```
 
@@ -848,4 +909,6 @@ squid run pipeline.yaml --dry-run -v
 - [ ] Complex pipelines use sub-pipeline composition (`type: pipeline`)
 - [ ] Pipeline has `args` with descriptions for all inputs
 - [ ] Pipeline is validated: `squid validate <file>`
-- [ ] Pipeline is tested with `TestRunner` mocks
+- [ ] Pipeline has a `.test.yaml` file with sandbox tests
+- [ ] Tests cover happy path, rejection path, and error path
+- [ ] Tests pass: `squid test`

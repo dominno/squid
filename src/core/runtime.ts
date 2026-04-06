@@ -318,7 +318,7 @@ async function executeStepOnce(
 
 // ─── Run (Shell Command) ──────────────────────────────────────────────
 
-function executeRun(step: Step, ctx: PipelineContext): StepResult {
+async function executeRun(step: Step, ctx: PipelineContext): Promise<StepResult> {
   const command = interpolate(step.run!, ctx);
   const cwd = step.cwd ?? ctx.cwd;
 
@@ -329,6 +329,25 @@ function executeRun(step: Step, ctx: PipelineContext): StepResult {
       output: { command, dryRun: true },
       meta: { dryRun: true },
     };
+  }
+
+  // Sandbox mode: never execute — use onRun hook or return empty mock
+  if (ctx.mode === "sandbox") {
+    const hookResult = await ctx.hooks.onRun?.(step, command, ctx);
+    if (hookResult) return { ...hookResult, stepId: step.id };
+    return {
+      stepId: step.id,
+      status: "completed",
+      output: { command, sandbox: true },
+      meta: { sandbox: true },
+    };
+  }
+
+  // onRun hook: if provided and returns a result, use it instead of executing
+  // (allows mocking specific run steps in integration mode)
+  if (ctx.hooks.onRun) {
+    const hookResult = await ctx.hooks.onRun(step, command, ctx);
+    if (hookResult) return { ...hookResult, stepId: step.id };
   }
 
   const execOpts: ExecSyncOptions = {

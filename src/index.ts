@@ -63,3 +63,13 @@ export {
 
 // Testing
 export { createTestRunner, TestRunner, type TestResult } from "./testing/index.js";
+
+// YAML Test Runner
+export {
+  runTestFile,
+  type TestFile,
+  type TestCase,
+  type TestSuiteResult,
+  type TestCaseResult,
+  type TestAssertions,
+} from "./testing/yaml-runner.js";
