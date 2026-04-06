@@ -744,27 +744,57 @@ squid/
 
 ## AI Agent Skill
 
-Squid ships with an **agent skill file** at [`skills/squid-pipeline/SKILL.md`](skills/squid-pipeline/SKILL.md) — a comprehensive reference that teaches any AI agent how to correctly author pipelines.
+Squid ships with a pipeline authoring skill that teaches any AI agent how to correctly build Squid pipelines. It follows the [Agent Skills](https://agentskills.io) standard.
 
-Feed it to the AI agent of your choice:
+### Install in Claude Code
 
-- **Claude Code / OpenClaw** — add to your agent's system prompt or attach as a file via `sessions_spawn`:
-  ```yaml
-  - id: build-pipeline
-    type: spawn
-    spawn:
-      task: "Create a deployment pipeline for my Node.js app"
-      attachments:
-        - name: SKILL.md
-          content: <contents of skills/squid-pipeline/SKILL.md>
-          mimeType: text/markdown
-  ```
-- **Claude (claude.ai)** — paste `SKILL.md` into the Project Knowledge or as a conversation attachment
-- **ChatGPT / Custom GPTs** — upload as a knowledge file or paste into the system instructions
-- **Cursor / Windsurf / Copilot** — place the file in your project root or reference it in your AI rules config
-- **Any LLM API** — include in the system prompt or as a user message before your pipeline request
+**Option A — Copy skill into your project (recommended):**
 
-The skill covers all 8 step types, data flow references, best practices, anti-patterns, testing, and a pre-submission checklist.
+```bash
+# From your project root
+cp -r /path/to/squid/skills/squid-pipeline .claude/skills/squid-pipeline
+```
+
+The skill is now available in Claude Code for that project. Claude auto-discovers skills in `.claude/skills/`.
+
+**Option B — Install globally (all projects):**
+
+```bash
+cp -r /path/to/squid/skills/squid-pipeline ~/.claude/skills/squid-pipeline
+```
+
+**Option C — Clone and install:**
+
+```bash
+git clone https://github.com/dominno/squid.git /tmp/squid
+cp -r /tmp/squid/skills/squid-pipeline ~/.claude/skills/squid-pipeline
+```
+
+After installing, Claude Code automatically loads the skill when you work with pipeline YAML files. You can also invoke it explicitly with `/squid-pipeline`.
+
+### Install in other AI tools
+
+| Tool | How to install |
+|------|---------------|
+| **Claude (claude.ai)** | Upload `SKILL.md` to Project Knowledge, or paste as conversation attachment |
+| **ChatGPT / Custom GPTs** | Upload `SKILL.md` as a knowledge file, or paste into system instructions |
+| **Cursor / Windsurf** | Copy `skills/squid-pipeline/` into `.cursor/skills/` or project root |
+| **OpenClaw** | Attach via `sessions_spawn` attachments or add to agent system prompt |
+| **Any LLM API** | Include `SKILL.md` content in the system prompt |
+
+### What's in the skill
+
+```
+skills/squid-pipeline/
+├── SKILL.md                # Main instructions (~225 lines)
+├── references/
+│   ├── step-types.md       # Full reference for all 8 step types
+│   ├── patterns.md         # 9 workflow patterns + anti-patterns
+│   └── testing.md          # Test modes, assertions, examples
+└── examples/               # 13 working pipeline examples
+```
+
+Claude loads `SKILL.md` first (~225 lines), then fetches reference files on demand when deeper detail is needed.
 
 ## Design Principles
 
