@@ -63,7 +63,7 @@ Spawn an OpenClaw sub-agent via `sessions_spawn`. This is the core differentiato
 
 **Output**: The sub-agent's completion output is available as `$architect.json`.
 
-**How it works**: Squid-Claw calls OpenClaw's `sessions_spawn` API, waits for the sub-agent to complete, and captures its output as the step result.
+**How it works**: Squid calls OpenClaw's `sessions_spawn` API, waits for the sub-agent to complete, and captures its output as the step result.
 
 ---
 
@@ -107,7 +107,7 @@ Human-in-the-loop approval gates. The pipeline halts and outputs a resume token.
 **Resuming**: When halted, the pipeline outputs a resume token:
 
 ```bash
-squid-claw resume pipeline.yaml --token <token> --approve yes
+squid resume pipeline.yaml --token <token> --approve yes
 ```
 
 **Referencing**: Use `$gate.approved` (boolean) in subsequent `when:` conditions.
@@ -319,7 +319,7 @@ Run another pipeline YAML as a step. This is the key to building large, maintain
 **Each sub-pipeline is standalone**: You can also run them directly:
 
 ```bash
-squid-claw run sub-build.yaml --args-json '{"target":"prod"}'
+squid run sub-build.yaml --args-json '{"target":"prod"}'
 ```
 
 ### Real-world example: Release orchestrator
@@ -362,7 +362,7 @@ steps:
         env: $args.env
 ```
 
-Running `squid-claw run orchestrator.yaml -v` executes all sub-pipelines in sequence, threading data between them:
+Running `squid run orchestrator.yaml -v` executes all sub-pipelines in sequence, threading data between them:
 
 ```
 → [build] pipeline...

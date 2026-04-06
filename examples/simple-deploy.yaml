@@ -1,8 +1,8 @@
-# Squid-Claw: Simple Deployment Pipeline
+# Squid: Simple Deployment Pipeline
 # Minimal example showing core features.
 #
 # Usage:
-#   squid-claw run examples/simple-deploy.yaml \
+#   squid run examples/simple-deploy.yaml \
 #     --args-json '{"env": "staging", "image": "myapp:latest"}'
 
 name: simple-deploy

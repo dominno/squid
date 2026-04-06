@@ -1,12 +1,12 @@
-# Squid-Claw Pipeline Authoring Skill
+# Squid Pipeline Authoring Skill
 
-You are an expert at building agentic pipelines with **Squid-Claw**, an OpenClaw-native pipeline framework. When the user asks you to create, modify, or debug a pipeline, follow this guide precisely.
+You are an expert at building agentic pipelines with **Squid**, an OpenClaw-native pipeline framework. When the user asks you to create, modify, or debug a pipeline, follow this guide precisely.
 
 ---
 
-## What is Squid-Claw
+## What is Squid
 
-Squid-Claw defines multi-agent workflows in YAML. Every step can spawn AI sub-agents via OpenClaw's `sessions_spawn`, gate on human approval, run shell commands, loop, branch, execute in parallel, or call other pipeline files. Pipelines are resumable, testable, and visualizable.
+Squid defines multi-agent workflows in YAML. Every step can spawn AI sub-agents via OpenClaw's `sessions_spawn`, gate on human approval, run shell commands, loop, branch, execute in parallel, or call other pipeline files. Pipelines are resumable, testable, and visualizable.
 
 ---
 
@@ -67,12 +67,12 @@ steps:                             # REQUIRED — ordered list of steps
 - Use `${args.key}` and `${stepId.json.field}` for interpolation in the command string.
 - **Always set `timeout`** for long-running commands.
 
-### 2. `spawn` — AI Sub-Agent (OpenClaw sessions_spawn)
+### 2. `spawn` — AI Sub-Agent (Pluggable Runtime)
 
-This is the core differentiator. Spawns a real AI agent as a child session.
+Spawns a real AI agent. Works with **OpenClaw**, **Claude Code**, **OpenCode**, or any custom adapter.
 
 ```yaml
-# Simple — string shorthand
+# Simple — string shorthand (uses pipeline default or openclaw)
 - id: analyze
   type: spawn
   spawn: "Analyze the codebase for security issues"
@@ -84,19 +84,42 @@ This is the core differentiator. Spawns a real AI agent as a child session.
     task: |                        # REQUIRED — the agent's instruction
       Design an architecture for: ${args.feature}
       Output JSON with: { files: [], interfaces: [], tests: [] }
-    agentId: architect-agent       # target agent ID
+    agent: claude-code             # agent adapter: openclaw | claude-code | opencode | custom
     model: claude-sonnet-4-6       # model override
-    thinking: high                 # off | low | high
-    runtime: subagent              # subagent | acp
+    thinking: high                 # off | low | high (OpenClaw only)
     cwd: ${args.repo}              # workspace directory
     timeout: 300                   # seconds
+    # OpenClaw-specific options:
+    agentId: architect-agent       # target agent ID
+    runtime: subagent              # subagent | acp
     mode: run                      # run (ephemeral) | session (persistent)
     sandbox: inherit               # inherit | require
-    attachments:                   # optional file attachments
+    attachments:                   # file attachments
       - name: spec.md
         content: "..."
         encoding: utf8
         mimeType: text/markdown
+```
+
+**Set pipeline-level default** so you don't repeat `agent:` on every step:
+
+```yaml
+name: my-pipeline
+agent: claude-code               # all spawn steps use Claude Code by default
+
+steps:
+  - id: plan
+    type: spawn
+    spawn:
+      task: "Plan the feature"
+      # → uses claude-code
+
+  - id: review
+    type: spawn
+    spawn:
+      agent: openclaw            # override just for this step
+      task: "Review the code"
+      agentId: reviewer
 ```
 
 **Best practices for spawn tasks:**
@@ -129,7 +152,7 @@ This is the core differentiator. Spawns a real AI agent as a child session.
 ```
 
 - Pipeline **halts** and outputs a resume token.
-- Resume: `squid-claw resume <file> --token <token> --approve yes|no`
+- Resume: `squid resume <file> --token <token> --approve yes|no`
 - Reference: `$approve.approved` (boolean), `$approve.skipped` (boolean).
 - Gates inside sub-pipelines propagate up — the parent halts too.
 - **Never use `autoApprove: true` for production gates.**
@@ -766,8 +789,8 @@ Branch based on step results:
 Every pipeline should be testable without a live OpenClaw instance.
 
 ```typescript
-import { createTestRunner } from "squid-claw/testing";
-import { parseFile } from "squid-claw";
+import { createTestRunner } from "squid/testing";
+import { parseFile } from "squid";
 
 const pipeline = parseFile("my-pipeline.yaml");
 
@@ -797,18 +820,18 @@ result.assertStepSkipped("dangerous-gate-action");
 ## CLI Commands
 
 ```bash
-squid-claw run <file> [--args-json '{}'] [--dry-run] [--test] [-v]
-squid-claw resume <file> --token <token> --approve yes|no
-squid-claw validate <file>
-squid-claw viz <file>                    # outputs Mermaid diagram
-squid-claw dev <file>                    # watch mode
-squid-claw init --template <t> --name <n>   # basic | agent | parallel | full
+squid run <file> [--args-json '{}'] [--dry-run] [--test] [-v]
+squid resume <file> --token <token> --approve yes|no
+squid validate <file>
+squid viz <file>                    # outputs Mermaid diagram
+squid dev <file>                    # watch mode
+squid init --template <t> --name <n>   # basic | agent | parallel | full
 ```
 
 **Always validate before running:**
 ```bash
-squid-claw validate pipeline.yaml
-squid-claw run pipeline.yaml --dry-run -v
+squid validate pipeline.yaml
+squid run pipeline.yaml --dry-run -v
 ```
 
 ---
@@ -824,5 +847,5 @@ squid-claw run pipeline.yaml --dry-run -v
 - [ ] Flaky operations have `retry`
 - [ ] Complex pipelines use sub-pipeline composition (`type: pipeline`)
 - [ ] Pipeline has `args` with descriptions for all inputs
-- [ ] Pipeline is validated: `squid-claw validate <file>`
+- [ ] Pipeline is validated: `squid validate <file>`
 - [ ] Pipeline is tested with `TestRunner` mocks

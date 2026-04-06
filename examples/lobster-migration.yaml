@@ -24,7 +24,7 @@
 #   - No parallel execution possible
 #   - pipeline: string is Bash-like glue
 #
-# AFTER (Squid-Claw):
+# AFTER (Squid):
 # ─────────────────────────────────────────
 
 name: jacket-advice
@@ -67,7 +67,7 @@ steps:
 
 # ─── MIGRATION CHEAT SHEET ──────────────────────────────
 #
-# | Lobster                  | Squid-Claw                    |
+# | Lobster                  | Squid                    |
 # |--------------------------|-------------------------------|
 # | run: cmd                 | type: run, run: cmd           |
 # | approval: "prompt"       | type: gate, gate: "prompt"    |
@@ -79,5 +79,5 @@ steps:
 # | (no loop)                | type: loop, loop: { over: }   |
 # | (no branch)              | type: branch, branch: {}      |
 # | (no sub-agents)          | type: spawn, spawn: { task: } |
-# | lobster run --file f     | squid-claw run f              |
-# | lobster resume --token   | squid-claw resume f --token   |
+# | lobster run --file f     | squid run f              |
+# | lobster resume --token   | squid resume f --token   |

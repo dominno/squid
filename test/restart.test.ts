@@ -10,7 +10,7 @@ describe("restart (jump back)", () => {
     // This simulates an iterative refinement loop.
     //
     // We use a file-based counter since each shell invocation is stateless.
-    const tmpFile = `/tmp/squid-claw-restart-test-${Date.now()}`;
+    const tmpFile = `/tmp/squid-restart-test-${Date.now()}`;
 
     const pipeline: Pipeline = {
       name: "test-restart",
@@ -45,7 +45,7 @@ describe("restart (jump back)", () => {
 
   it("respects maxRestarts limit", async () => {
     // Always-true restart condition with maxRestarts=2
-    const tmpFile = `/tmp/squid-claw-restart-max-${Date.now()}`;
+    const tmpFile = `/tmp/squid-restart-max-${Date.now()}`;
 
     const pipeline: Pipeline = {
       name: "test-restart-max",
@@ -108,7 +108,7 @@ describe("restart (jump back)", () => {
   });
 
   it("clears intermediate step results on restart", async () => {
-    const tmpFile = `/tmp/squid-claw-restart-clear-${Date.now()}`;
+    const tmpFile = `/tmp/squid-restart-clear-${Date.now()}`;
 
     const pipeline: Pipeline = {
       name: "test-restart-clear",

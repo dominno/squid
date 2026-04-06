@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Squid-Claw CLI
+ * Squid CLI
  *
  * Commands:
  *   run <file>       Execute a pipeline
@@ -54,7 +54,7 @@ async function main() {
       break;
     default:
       if (command && command.endsWith(".yaml") || command?.endsWith(".yml") || command?.endsWith(".json")) {
-        // Shortcut: squid-claw pipeline.yaml → squid-claw run pipeline.yaml
+        // Shortcut: squid pipeline.yaml → squid run pipeline.yaml
         await cmdRun(args);
       } else {
         console.error(`Unknown command: ${command}`);
@@ -82,7 +82,7 @@ async function cmdRun(args: string[]) {
 
   const filePath = positionals[0];
   if (!filePath) {
-    console.error("Usage: squid-claw run <pipeline.yaml> [options]");
+    console.error("Usage: squid run <pipeline.yaml> [options]");
     process.exit(1);
   }
 
@@ -126,7 +126,7 @@ async function cmdResume(args: string[]) {
 
   const tokenStr = (values.token as string) ?? positionals[0];
   if (!tokenStr) {
-    console.error("Usage: squid-claw resume --token <token> --approve yes|no");
+    console.error("Usage: squid resume --token <token> --approve yes|no");
     process.exit(1);
   }
 
@@ -141,7 +141,7 @@ async function cmdResume(args: string[]) {
   // For now, require the file as a positional arg
   const filePath = positionals[approve ? 0 : 1];
   if (!filePath) {
-    console.error("Usage: squid-claw resume <pipeline.yaml> --token <token> --approve yes|no");
+    console.error("Usage: squid resume <pipeline.yaml> --token <token> --approve yes|no");
     process.exit(1);
   }
 
@@ -163,7 +163,7 @@ async function cmdResume(args: string[]) {
 function cmdValidate(args: string[]) {
   const filePath = args[0];
   if (!filePath) {
-    console.error("Usage: squid-claw validate <pipeline.yaml>");
+    console.error("Usage: squid validate <pipeline.yaml>");
     process.exit(1);
   }
 
@@ -188,7 +188,7 @@ function cmdValidate(args: string[]) {
 function cmdVisualize(args: string[]) {
   const filePath = args[0];
   if (!filePath) {
-    console.error("Usage: squid-claw visualize <pipeline.yaml>");
+    console.error("Usage: squid visualize <pipeline.yaml>");
     process.exit(1);
   }
 
@@ -202,7 +202,7 @@ function cmdVisualize(args: string[]) {
 async function cmdDev(args: string[]) {
   const filePath = args[0];
   if (!filePath) {
-    console.error("Usage: squid-claw dev <pipeline.yaml>");
+    console.error("Usage: squid dev <pipeline.yaml>");
     process.exit(1);
   }
 
@@ -260,9 +260,9 @@ function cmdInit(args: string[]) {
   writeFileSync(outputPath, content, "utf-8");
   console.log(`Created ${outputPath} (template: ${template})`);
   console.log(`\nNext steps:`);
-  console.log(`  squid-claw validate ${outputPath}`);
-  console.log(`  squid-claw run ${outputPath} --dry-run`);
-  console.log(`  squid-claw viz ${outputPath}`);
+  console.log(`  squid validate ${outputPath}`);
+  console.log(`  squid run ${outputPath} --dry-run`);
+  console.log(`  squid viz ${outputPath}`);
 }
 
 function getTemplate(template: string, name: string): string {
@@ -283,8 +283,8 @@ function getTemplate(template: string, name: string): string {
   }
 }
 
-const TEMPLATE_BASIC = `# Squid-Claw Pipeline: {{name}}
-# Run: squid-claw run {{name}}.yaml
+const TEMPLATE_BASIC = `# Squid Pipeline: {{name}}
+# Run: squid run {{name}}.yaml
 
 name: {{name}}
 description: A simple pipeline
@@ -317,8 +317,8 @@ steps:
     when: \$approve.approved
 `;
 
-const TEMPLATE_AGENT = `# Squid-Claw Pipeline: {{name}}
-# Run: squid-claw run {{name}}.yaml --args-json '{"task": "..."}'
+const TEMPLATE_AGENT = `# Squid Pipeline: {{name}}
+# Run: squid run {{name}}.yaml --args-json '{"task": "..."}'
 
 name: {{name}}
 description: Pipeline with AI sub-agents
@@ -357,8 +357,8 @@ steps:
     when: \$review.approved
 `;
 
-const TEMPLATE_PARALLEL = `# Squid-Claw Pipeline: {{name}}
-# Run: squid-claw run {{name}}.yaml
+const TEMPLATE_PARALLEL = `# Squid Pipeline: {{name}}
+# Run: squid run {{name}}.yaml
 
 name: {{name}}
 description: Pipeline with parallel execution
@@ -395,9 +395,9 @@ steps:
     transform: \$parallel-work.json
 `;
 
-const TEMPLATE_FULL = `# Squid-Claw Pipeline: {{name}}
+const TEMPLATE_FULL = `# Squid Pipeline: {{name}}
 # Full-featured pipeline showcasing all step types
-# Run: squid-claw run {{name}}.yaml --args-json '{"target": "prod"}'
+# Run: squid run {{name}}.yaml --args-json '{"target": "prod"}'
 
 name: {{name}}
 description: Full-featured pipeline with all step types
@@ -527,15 +527,15 @@ function printResult(result: RunResult) {
 
 function printHelp() {
   console.log(`
-squid-claw - OpenClaw-native agentic pipeline framework
+squid - OpenClaw-native agentic pipeline framework
 
 Usage:
-  squid-claw run <pipeline.yaml> [options]    Execute a pipeline
-  squid-claw resume <file> --token <t> --approve yes|no
-  squid-claw validate <pipeline.yaml>         Validate syntax
-  squid-claw visualize <pipeline.yaml>        Output Mermaid diagram
-  squid-claw dev <pipeline.yaml>              Watch mode (dry-run on save)
-  squid-claw init [options]                   Scaffold a new pipeline
+  squid run <pipeline.yaml> [options]    Execute a pipeline
+  squid resume <file> --token <t> --approve yes|no
+  squid validate <pipeline.yaml>         Validate syntax
+  squid visualize <pipeline.yaml>        Output Mermaid diagram
+  squid dev <pipeline.yaml>              Watch mode (dry-run on save)
+  squid init [options]                   Scaffold a new pipeline
 
 Init templates:
   --template basic      Simple build/test/deploy (default)
@@ -553,14 +553,14 @@ Options:
   --cwd <dir>                   Working directory
 
 Examples:
-  squid-claw run deploy.yaml --args-json '{"env":"staging"}'
-  squid-claw validate pipeline.yaml
-  squid-claw viz pipeline.yaml > diagram.md
+  squid run deploy.yaml --args-json '{"env":"staging"}'
+  squid validate pipeline.yaml
+  squid viz pipeline.yaml > diagram.md
 `);
 }
 
 function printVersion() {
-  console.log("squid-claw 0.1.0");
+  console.log("squid 0.1.0");
 }
 
 // ─── Entry ────────────────────────────────────────────────────────────

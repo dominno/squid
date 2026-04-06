@@ -1,5 +1,5 @@
 /**
- * Squid-Claw - OpenClaw-native agentic pipeline framework
+ * Squid - OpenClaw-native agentic pipeline framework
  *
  * Public API for programmatic usage.
  */
@@ -18,8 +18,11 @@ export type {
   LoopConfig,
   BranchConfig,
   RetryConfig,
+  RestartConfig,
+  PipelineRefConfig,
   PipelineContext,
   PipelineHooks,
+  AgentAdapter,
   OpenClawAdapter,
   SpawnResult,
   ResumeToken,
@@ -46,8 +49,17 @@ export { encodeResumeToken, decodeResumeToken } from "./core/resume.js";
 // Visualization
 export { buildGraph, toMermaid } from "./core/graph.js";
 
-// OpenClaw Adapter
+// Agent Adapters
 export { createOpenClawAdapter, type OpenClawConfig } from "./core/openclaw-adapter.js";
+export {
+  registerAdapter,
+  getAdapter,
+  listAdapters,
+  resolveAdapter,
+  createClaudeCodeAdapter,
+  createOpenCodeAdapter,
+  setupBuiltinAdapters,
+} from "./core/adapters/index.js";
 
 // Testing
 export { createTestRunner, TestRunner, type TestResult } from "./testing/index.js";

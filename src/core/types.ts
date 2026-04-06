@@ -1,5 +1,5 @@
 /**
- * Squid-Claw Core Types
+ * Squid Core Types
  *
  * SOLID: Each interface has a single responsibility.
  * Open/Closed: Extend via StepType union, never modify existing types.
@@ -17,6 +17,7 @@ export interface Pipeline {
   args?: Record<string, ArgDef>;
   env?: Record<string, string>;
   cwd?: string;
+  agent?: string;                  // Default agent adapter for spawn steps: "openclaw" | "claude-code" | "opencode"
   steps: Step[];
   onError?: ErrorStrategy;
   sourceDir?: string;              // Directory of the source YAML file (set by parseFile)
@@ -77,11 +78,12 @@ export interface Step {
 
 export interface SpawnConfig {
   task: string;                    // Task description for sub-agent
-  agentId?: string;                // Target agent ID
+  agent?: string;                  // Agent adapter to use: "openclaw" | "claude-code" | "opencode" | custom
+  agentId?: string;                // Target agent ID (OpenClaw-specific)
   model?: string;                  // Model override
   thinking?: "off" | "low" | "high";
-  runtime?: "subagent" | "acp";
-  cwd?: string;                    // Workspace directory
+  runtime?: "subagent" | "acp";   // OpenClaw runtime mode
+  cwd?: string;                   // Workspace directory
   timeout?: number;                // Seconds
   mode?: "run" | "session";        // Ephemeral or persistent
   attachments?: SpawnAttachment[];
@@ -213,6 +215,7 @@ export interface PipelineContext {
   env: Record<string, string>;
   cwd: string;
   sourceDir?: string;              // Directory of the pipeline source file
+  agent?: string;                  // Default agent adapter name for this pipeline
   results: Map<string, StepResult>;
   state: Map<string, unknown>;     // User-managed state
   mode: ExecutionMode;
@@ -234,7 +237,7 @@ export interface PipelineHooks {
   onPipelineComplete?: (pipeline: Pipeline, results: Map<string, StepResult>, ctx: PipelineContext) => Promise<void>;
 }
 
-// ─── OpenClaw Integration ─────────────────────────────────────────────
+// ─── Agent Adapter (Pluggable Agent Runtimes) ────────────────────────
 
 export interface SpawnResult {
   status: "accepted" | "forbidden" | "error";
@@ -244,11 +247,20 @@ export interface SpawnResult {
   error?: string;
 }
 
-export interface OpenClawAdapter {
+/**
+ * Generic interface for agent runtimes.
+ * Implement this to plug in any agent system: OpenClaw, Claude Code, OpenCode, etc.
+ */
+export interface AgentAdapter {
+  /** Unique name for this adapter (e.g., "openclaw", "claude-code", "opencode") */
+  name: string;
   spawn(config: SpawnConfig, ctx: PipelineContext): Promise<SpawnResult>;
   waitForCompletion(childSessionKey: string, timeoutMs?: number): Promise<StepResult>;
   getSessionStatus(sessionKey: string): Promise<StepStatus>;
 }
+
+/** @deprecated Use AgentAdapter instead */
+export type OpenClawAdapter = AgentAdapter;
 
 // ─── Resume Token ─────────────────────────────────────────────────────
 

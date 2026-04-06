@@ -1,8 +1,8 @@
-# Squid-Claw: Multi-Agent Development Pipeline
+# Squid: Multi-Agent Development Pipeline
 # 8 sub-agents collaborate to build, test, and deploy a feature.
 #
 # Usage:
-#   squid-claw run examples/multi-agent-dev.yaml \
+#   squid run examples/multi-agent-dev.yaml \
 #     --args-json '{"feature": "add user auth", "repo": "/path/to/repo"}'
 
 name: multi-agent-dev

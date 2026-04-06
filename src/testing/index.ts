@@ -1,11 +1,11 @@
 /**
- * Squid-Claw Test Harness
+ * Squid Test Harness
  *
  * Provides mock adapters and test utilities for pipeline testing.
  * No real OpenClaw calls needed — everything is mockable.
  *
  * Usage:
- *   import { createTestRunner } from "squid-claw/testing";
+ *   import { createTestRunner } from "squid/testing";
  *   const runner = createTestRunner()
  *     .mockSpawn("research", { output: { data: "..." } })
  *     .approveGate("review")
@@ -13,7 +13,7 @@
  */
 
 import type {
-  OpenClawAdapter,
+  AgentAdapter,
   SpawnConfig,
   SpawnResult,
   StepResult,
@@ -115,7 +115,8 @@ export class TestRunner {
     const self = this;
     this.capturedSteps = [];
 
-    const adapter: OpenClawAdapter = {
+    const adapter: AgentAdapter = {
+      name: "test-mock",
       async spawn(config: SpawnConfig, ctx: PipelineContext) {
         // Find step ID from context (match by task)
         for (const [stepId, handler] of self.spawnMocks) {

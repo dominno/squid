@@ -3,7 +3,7 @@
 # A self-contained build pipeline that can be called from any parent.
 # Compiles code, runs linting, and outputs a build artifact summary.
 #
-# Standalone:  squid-claw run examples/sub-build.yaml --args-json '{"target":"prod"}'
+# Standalone:  squid run examples/sub-build.yaml --args-json '{"target":"prod"}'
 # As sub-step: See examples/orchestrator.yaml
 
 name: build

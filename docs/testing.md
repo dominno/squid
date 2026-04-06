@@ -1,12 +1,12 @@
 # Testing Pipelines
 
-Squid-Claw has built-in testing support. No OpenClaw instance needed — everything is mockable.
+Squid has built-in testing support. No OpenClaw instance needed — everything is mockable.
 
 ## TestRunner
 
 ```typescript
-import { createTestRunner } from "squid-claw/testing";
-import { parseFile } from "squid-claw";
+import { createTestRunner } from "squid/testing";
+import { parseFile } from "squid";
 
 const pipeline = parseFile("my-pipeline.yaml");
 
@@ -142,8 +142,8 @@ result.assertStepSkipped("rollback");  // throws if not skipped
 
 ```typescript
 import { describe, it, expect } from "vitest";
-import { createTestRunner } from "squid-claw/testing";
-import { parseFile } from "squid-claw";
+import { createTestRunner } from "squid/testing";
+import { parseFile } from "squid";
 
 const pipeline = parseFile("deploy.yaml");
 
@@ -215,7 +215,7 @@ it("takes error path when tests fail", async () => {
 The TestRunner always uses `test` mode. You can also use `--test` from the CLI:
 
 ```bash
-squid-claw run pipeline.yaml --test
+squid run pipeline.yaml --test
 ```
 
 ## Tips

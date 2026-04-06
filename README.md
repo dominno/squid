@@ -1,8 +1,8 @@
-# Squid-Claw
+# Squid
 
-**OpenClaw-native agentic pipeline framework** — built to replace Lobster.
+**Agentic pipeline framework with pluggable agent runtimes** — built to replace Lobster.
 
-Squid-Claw lets you define multi-agent workflows in YAML with native sub-agent spawning, approval gates, parallel execution, loops, branching, and retries. Every step can spawn a sub-agent via OpenClaw's `sessions_spawn`. No Bash glue needed.
+Squid lets you define multi-agent workflows in YAML with native sub-agent spawning, approval gates, parallel execution, loops, branching, and retries. Spawn steps work with **OpenClaw**, **Claude Code**, **OpenCode**, or any custom agent runtime. No Bash glue needed.
 
 ## Architecture
 
@@ -38,7 +38,7 @@ graph TD
 
 ```mermaid
 sequenceDiagram
-  participant CLI as squid-claw CLI
+  participant CLI as squid CLI
   participant P as Parser
   participant R as Runtime
   participant OC as OpenClaw
@@ -74,12 +74,12 @@ sequenceDiagram
 ```bash
 # From source
 git clone <repo>
-cd squid-claw
+cd squid
 npm install
 npm run build
 
 # Run
-npx squid-claw run pipeline.yaml
+npx squid run pipeline.yaml
 # or in dev mode
 npm run dev -- run pipeline.yaml
 ```
@@ -120,19 +120,19 @@ steps:
 ### 2. Run it
 
 ```bash
-squid-claw run deploy.yaml --args-json '{"image": "myapp:v2"}'
+squid run deploy.yaml --args-json '{"image": "myapp:v2"}'
 ```
 
 ### 3. Resume after approval
 
 ```bash
-squid-claw resume deploy.yaml --token <token> --approve yes
+squid resume deploy.yaml --token <token> --approve yes
 ```
 
 ### 4. Visualize
 
 ```bash
-squid-claw viz deploy.yaml
+squid viz deploy.yaml
 ```
 
 ## Step Types
@@ -296,11 +296,11 @@ See `examples/orchestrator.yaml` with `sub-build.yaml`, `sub-test.yaml`, `sub-de
 
 ## Testing
 
-Built-in mock support — no OpenClaw needed for tests:
+Built-in mock support — no agent runtime (OpenClaw, Claude Code, etc.) needed for tests:
 
 ```typescript
-import { createTestRunner } from "squid-claw/testing";
-import { parseFile } from "squid-claw";
+import { createTestRunner } from "squid/testing";
+import { parseFile } from "squid";
 
 const pipeline = parseFile("deploy.yaml");
 
@@ -314,11 +314,100 @@ result.assertStepCompleted("build");
 result.assertStepCompleted("deploy");
 ```
 
-## Squid-Claw vs Lobster
+## Agent Adapters
 
-| Feature | Lobster | Squid-Claw |
+Spawn steps are **not locked to OpenClaw**. Squid ships with three built-in agent adapters and supports custom ones.
+
+### Built-in adapters
+
+| Adapter | `agent:` value | What it calls | Install |
+|---------|---------------|---------------|---------|
+| **OpenClaw** | `openclaw` | `sessions_spawn` API or `openclaw` CLI | [openclaw.com](https://openclaw.com) |
+| **Claude Code** | `claude-code` | `claude -p "task" --output-format json` | [claude.ai/claude-code](https://claude.ai/claude-code) |
+| **OpenCode** | `opencode` | `opencode run --message "task"` | [opencode.ai](https://opencode.ai) |
+
+### Set the agent per pipeline
+
+```yaml
+name: my-pipeline
+agent: claude-code               # all spawn steps use Claude Code by default
+
+steps:
+  - id: analyze
+    type: spawn
+    spawn:
+      task: "Analyze the codebase"
+      # → runs: claude -p "Analyze the codebase"
+```
+
+### Override per step
+
+```yaml
+name: multi-agent
+agent: claude-code               # default
+
+steps:
+  - id: research
+    type: spawn
+    spawn:
+      task: "Research the topic"
+      # → uses claude-code (inherited)
+
+  - id: implement
+    type: spawn
+    spawn:
+      agent: opencode            # override for this step
+      task: "Implement the fix"
+      # → runs: opencode run --message "Implement the fix"
+
+  - id: review
+    type: spawn
+    spawn:
+      agent: openclaw            # override for this step
+      task: "Review the changes"
+      agentId: code-reviewer     # OpenClaw-specific options still work
+```
+
+### Set default via environment
+
+```bash
+export SQUID_AGENT=claude-code
+squid run pipeline.yaml      # all spawns use Claude Code
+```
+
+**Resolution order**: `step.agent` > `pipeline.agent` > `SQUID_AGENT` env > `openclaw`
+
+### Register a custom adapter
+
+```typescript
+import { registerAdapter } from "squid";
+import type { AgentAdapter } from "squid";
+
+const myAdapter: AgentAdapter = {
+  name: "my-agent",
+  async spawn(config, ctx) {
+    const result = await callMyAgentRuntime(config.task);
+    return { status: "accepted", output: result };
+  },
+  async waitForCompletion() {
+    return { stepId: "", status: "completed", output: {} };
+  },
+  async getSessionStatus() {
+    return "completed";
+  },
+};
+
+registerAdapter(myAdapter);
+// Now use: agent: "my-agent" in any pipeline YAML
+```
+
+See [docs/adapters.md](docs/adapters.md) for full setup instructions for each adapter.
+
+## Squid vs Lobster
+
+| Feature | Lobster | Squid |
 |---------|---------|------------|
-| **Sub-agent Spawn** | Manual tool call via `openclaw.invoke` | Native `spawn:` block with `sessions_spawn` |
+| **Sub-agent Spawn** | Manual tool call via `openclaw.invoke` | Native `spawn:` block — pluggable adapters (OpenClaw, Claude Code, OpenCode, custom) |
 | **Parallel Execution** | Not supported | `parallel:` with `maxConcurrent` |
 | **Loops** | No native syntax | `loop:` with parallel iterations |
 | **Conditional Branching** | Basic `when: $step.approved` | `branch:` with multi-condition routing |
@@ -332,16 +421,16 @@ result.assertStepCompleted("deploy");
 | **Restart / Jump Back** | Not supported | `restart:` for iterative refinement loops |
 | **Resumability** | Opaque token + state dir | Self-contained base64 token |
 | **Principles** | Partial SOLID | Full SOLID/DRY/KISS |
-| **CLI** | `lobster run --file` | `squid-claw run` (file auto-detected) |
+| **CLI** | `lobster run --file` | `squid run` (file auto-detected) |
 
 ## CLI Reference
 
 ```
-squid-claw run <file> [options]       Execute a pipeline
-squid-claw resume <file> [options]    Resume a halted pipeline
-squid-claw validate <file>            Validate pipeline syntax
-squid-claw viz <file>                 Output Mermaid diagram
-squid-claw dev <file>                 Watch mode (dry-run on save)
+squid run <file> [options]       Execute a pipeline
+squid resume <file> [options]    Resume a halted pipeline
+squid validate <file>            Validate pipeline syntax
+squid viz <file>                 Output Mermaid diagram
+squid dev <file>                 Watch mode (dry-run on save)
 
 Options:
   --args-json '{...}'    Pipeline arguments
@@ -355,16 +444,19 @@ Options:
 
 | Variable | Description |
 |----------|-------------|
-| `OPENCLAW_URL` | OpenClaw gateway URL (for spawn steps) |
+| `SQUID_AGENT` | Default agent adapter: `openclaw`, `claude-code`, `opencode` |
+| `OPENCLAW_URL` | OpenClaw gateway URL |
 | `OPENCLAW_TOKEN` | Auth token for OpenClaw |
+| `CLAUDE_MODEL` | Default model for Claude Code adapter |
+| `OPENCODE_MODEL` | Default model for OpenCode adapter |
 | `CLAWD_URL` | Fallback for `OPENCLAW_URL` |
 | `CLAWD_TOKEN` | Fallback for `OPENCLAW_TOKEN` |
 
 ## Project Structure
 
 ```
-squid-claw/
-├── bin/squid-claw.js          # CLI entry point
+squid/
+├── bin/squid.js          # CLI entry point
 ├── src/
 │   ├── index.ts               # Public API exports
 │   ├── core/
@@ -373,7 +465,12 @@ squid-claw/
 │   │   ├── runtime.ts         # Pipeline execution engine
 │   │   ├── expressions.ts     # $ref resolution & conditions
 │   │   ├── resume.ts          # Resume token encode/decode
-│   │   └── graph.ts           # Mermaid visualization
+│   │   ├── graph.ts           # Mermaid visualization
+│   │   └── adapters/          # Pluggable agent adapters
+│   │       ├── registry.ts    # Adapter registration & resolution
+│   │       ├── claude-code.ts # Claude Code CLI adapter
+│   │       ├── opencode.ts    # OpenCode CLI adapter
+│   │       └── setup.ts       # Auto-register built-in adapters
 │   ├── cli/
 │   │   └── main.ts            # CLI commands
 │   └── testing/
@@ -397,7 +494,7 @@ squid-claw/
 
 ## AI Agent Skill
 
-Squid-Claw ships with an **agent skill file** at [`agent-skill/SKILL.md`](agent-skill/SKILL.md) — a comprehensive reference that teaches any AI agent how to correctly author pipelines.
+Squid ships with an **agent skill file** at [`agent-skill/SKILL.md`](agent-skill/SKILL.md) — a comprehensive reference that teaches any AI agent how to correctly author pipelines.
 
 Feed it to the AI agent of your choice:
 

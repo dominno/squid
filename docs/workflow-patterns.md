@@ -1,6 +1,6 @@
 # Workflow Patterns
 
-Common patterns for building pipelines with Squid-Claw.
+Common patterns for building pipelines with Squid.
 
 ---
 
@@ -450,7 +450,7 @@ steps:
 ### Key benefits
 
 - **Reusability**: `deploy.yaml` works for staging, prod, canary — just pass different args
-- **Testability**: Test each sub-pipeline independently with `squid-claw run stages/build.yaml --test`
+- **Testability**: Test each sub-pipeline independently with `squid run stages/build.yaml --test`
 - **Readability**: The orchestrator is a high-level overview; details live in sub-pipelines
 - **Team ownership**: Different teams can own different stages
 - **Gate propagation**: A prod gate in `deploy.yaml` halts the entire orchestrator
@@ -485,19 +485,19 @@ Each sub-pipeline's output flows to the next via `$stepId.json`:
 
 ```bash
 # Validate all files
-squid-claw validate examples/orchestrator.yaml
-squid-claw validate examples/sub-build.yaml
-squid-claw validate examples/sub-test.yaml
-squid-claw validate examples/sub-deploy.yaml
+squid validate examples/orchestrator.yaml
+squid validate examples/sub-build.yaml
+squid validate examples/sub-test.yaml
+squid validate examples/sub-deploy.yaml
 
 # Dry run
-squid-claw run examples/orchestrator.yaml --dry-run -v
+squid run examples/orchestrator.yaml --dry-run -v
 
 # Real run (staging — no prod gate)
-squid-claw run examples/orchestrator.yaml -v
+squid run examples/orchestrator.yaml -v
 
 # Real run (prod — halts at deploy gate)
-squid-claw run examples/orchestrator.yaml --args-json '{"env":"prod"}' -v
+squid run examples/orchestrator.yaml --args-json '{"env":"prod"}' -v
 ```
 
 ---

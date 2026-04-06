@@ -1,11 +1,12 @@
 import { describe, it, expect } from "vitest";
 import { runPipeline } from "../src/core/runtime.js";
-import type { Pipeline, OpenClawAdapter, SpawnConfig, PipelineContext } from "../src/core/types.js";
+import type { Pipeline, AgentAdapter, SpawnConfig, PipelineContext } from "../src/core/types.js";
 
 function createAdapter(
-  overrides: Partial<OpenClawAdapter> = {}
-): OpenClawAdapter {
+  overrides: Partial<AgentAdapter> = {}
+): AgentAdapter {
   return {
+    name: "test-mock",
     async spawn() {
       return {
         status: "accepted" as const,
@@ -57,9 +58,9 @@ describe("runPipeline", () => {
       };
 
       const result = await runPipeline(pipeline, {
-        args: { name: "squid-claw" },
+        args: { name: "squid" },
       });
-      expect(result.results.greet.stdout).toBe("squid-claw");
+      expect(result.results.greet.stdout).toBe("squid");
     });
 
     it("fails on bad command", async () => {

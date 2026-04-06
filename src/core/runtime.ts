@@ -1,5 +1,5 @@
 /**
- * Squid-Claw Pipeline Runtime
+ * Squid Pipeline Runtime
  *
  * Executes parsed Pipeline definitions step-by-step.
  * Handles: sequential flow, parallel branches, loops, gates,
@@ -23,6 +23,7 @@ import type {
   StepError,
   PipelineContext,
   PipelineHooks,
+  AgentAdapter,
   OpenClawAdapter,
   SpawnConfig,
   RetryConfig,
@@ -32,6 +33,7 @@ import type {
 } from "./types.js";
 import { resolveRef, evaluateCondition, interpolate } from "./expressions.js";
 import { parseFile } from "./parser.js";
+import { resolveAdapter } from "./adapters/registry.js";
 
 // ─── Public API ───────────────────────────────────────────────────────
 
@@ -40,7 +42,8 @@ export interface RunOptions {
   env?: Record<string, string>;
   cwd?: string;
   mode?: ExecutionMode;
-  adapter?: OpenClawAdapter;
+  /** @deprecated Use the adapter registry instead: registerAdapter() + pipeline.agent / spawn.agent */
+  adapter?: AgentAdapter;
   hooks?: PipelineHooks;
   signal?: AbortSignal;
   resumeToken?: ResumeToken;
@@ -75,6 +78,7 @@ export async function runPipeline(
     env: { ...process.env as Record<string, string>, ...pipeline.env, ...options.env },
     cwd: options.cwd ?? pipeline.cwd ?? process.cwd(),
     sourceDir: pipeline.sourceDir,
+    agent: pipeline.agent,
     results: new Map(),
     state: new Map(),
     mode: options.mode ?? "run",
@@ -82,7 +86,7 @@ export async function runPipeline(
     hooks: options.hooks ?? {},
   };
 
-  // Wire up OpenClaw adapter
+  // Wire up agent adapter (legacy single adapter or per-step via registry)
   const adapter = options.adapter ?? createDefaultAdapter();
 
   // Resume: restore completed results
@@ -224,7 +228,7 @@ export async function runPipeline(
 async function executeStep(
   step: Step,
   ctx: PipelineContext,
-  adapter: OpenClawAdapter,
+  adapter: AgentAdapter,
   onError?: ErrorStrategy
 ): Promise<StepResult> {
   // Condition check
@@ -288,7 +292,7 @@ async function executeStep(
 async function executeStepOnce(
   step: Step,
   ctx: PipelineContext,
-  adapter: OpenClawAdapter
+  adapter: AgentAdapter
 ): Promise<StepResult> {
   switch (step.type) {
     case "run":
@@ -365,7 +369,7 @@ function executeRun(step: Step, ctx: PipelineContext): StepResult {
 async function executeSpawn(
   step: Step,
   ctx: PipelineContext,
-  adapter: OpenClawAdapter
+  adapter: AgentAdapter
 ): Promise<StepResult> {
   const config = step.spawn!;
 
@@ -401,8 +405,17 @@ async function executeSpawn(
     }
   }
 
-  // Spawn via OpenClaw adapter
-  const spawnResult = await adapter.spawn(resolvedConfig, ctx);
+  // Resolve adapter: step.agent → pipeline.agent → legacy adapter
+  let resolvedAdapter = adapter;
+  if (config.agent || ctx.agent) {
+    try {
+      resolvedAdapter = resolveAdapter(config.agent, ctx.agent);
+    } catch {
+      // Fall through to legacy adapter if registry has no match
+    }
+  }
+
+  const spawnResult = await resolvedAdapter.spawn(resolvedConfig, ctx);
 
   if (spawnResult.status !== "accepted") {
     return {
@@ -415,7 +428,7 @@ async function executeSpawn(
   // Wait for completion
   if (spawnResult.childSessionKey) {
     const timeout = (config.timeout ?? 600) * 1000;
-    const completionResult = await adapter.waitForCompletion(
+    const completionResult = await resolvedAdapter.waitForCompletion(
       spawnResult.childSessionKey,
       timeout
     );
@@ -481,7 +494,7 @@ async function executeGate(
 async function executeParallel(
   step: Step,
   ctx: PipelineContext,
-  adapter: OpenClawAdapter
+  adapter: AgentAdapter
 ): Promise<StepResult> {
   const config = step.parallel!;
   const branchEntries = Object.entries(config.branches);
@@ -561,7 +574,7 @@ async function executeParallel(
 async function executeLoop(
   step: Step,
   ctx: PipelineContext,
-  adapter: OpenClawAdapter
+  adapter: AgentAdapter
 ): Promise<StepResult> {
   const config = step.loop!;
 
@@ -662,7 +675,7 @@ async function executeLoop(
 async function executeBranch(
   step: Step,
   ctx: PipelineContext,
-  adapter: OpenClawAdapter
+  adapter: AgentAdapter
 ): Promise<StepResult> {
   const config = step.branch!;
 
@@ -689,7 +702,7 @@ async function executeSubSteps(
   parentId: string,
   steps: Step[],
   ctx: PipelineContext,
-  adapter: OpenClawAdapter
+  adapter: AgentAdapter
 ): Promise<StepResult> {
   let lastResult: StepResult | undefined;
 
@@ -747,7 +760,7 @@ function executeTransform(step: Step, ctx: PipelineContext): StepResult {
 async function executePipelineRef(
   step: Step,
   ctx: PipelineContext,
-  adapter: OpenClawAdapter
+  adapter: AgentAdapter
 ): Promise<StepResult> {
   const config = step.pipeline!;
 
@@ -841,7 +854,7 @@ async function withRetry(
   step: Step,
   config: RetryConfig,
   ctx: PipelineContext,
-  adapter: OpenClawAdapter
+  adapter: AgentAdapter
 ): Promise<StepResult> {
   const maxAttempts = config.maxAttempts;
   const backoff = config.backoff ?? "exponential-jitter";
@@ -988,8 +1001,9 @@ function sleep(ms: number): Promise<void> {
 
 // ─── Default OpenClaw Adapter ─────────────────────────────────────────
 
-function createDefaultAdapter(): OpenClawAdapter {
+function createDefaultAdapter(): AgentAdapter {
   return {
+    name: "openclaw",
     async spawn(config: SpawnConfig): Promise<{
       status: "accepted" | "forbidden" | "error";
       childSessionKey?: string;

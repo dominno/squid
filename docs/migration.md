@@ -1,8 +1,8 @@
-# Migrating from Lobster to Squid-Claw
+# Migrating from Lobster to Squid
 
 ## Quick Reference
 
-| Lobster | Squid-Claw | Notes |
+| Lobster | Squid | Notes |
 |---------|------------|-------|
 | `run: cmd` | `type: run`, `run: cmd` | Explicit type |
 | `command: cmd` | `type: run`, `run: cmd` | `command` also works |
@@ -16,8 +16,8 @@
 | (no parallel) | `type: parallel` | New feature |
 | (no loop) | `type: loop` | New feature |
 | (no branch) | `type: branch` | New feature |
-| `lobster run --file f` | `squid-claw run f` | Shorter |
-| `lobster resume --token t` | `squid-claw resume f --token t` | Need file path |
+| `lobster run --file f` | `squid run f` | Shorter |
+| `lobster resume --token t` | `squid resume f --token t` | Need file path |
 | `--mode tool` | Default behavior | Tool envelope is default |
 | `--args-json '{}'` | `--args-json '{}'` | Same |
 
@@ -32,7 +32,7 @@ steps:
     run: curl -s https://api.example.com/data
 ```
 
-**Squid-Claw:**
+**Squid:**
 ```yaml
 steps:
   - id: fetch
@@ -51,7 +51,7 @@ Change: Add `type: run`. The `run:` key stays the same.
   stdin: $fetch.json
 ```
 
-**Squid-Claw:**
+**Squid:**
 ```yaml
 - id: confirm
   type: gate
@@ -74,7 +74,7 @@ Changes:
   stdin: $fetch.json
 ```
 
-**Squid-Claw:**
+**Squid:**
 ```yaml
 - id: advice
   type: spawn
@@ -97,7 +97,7 @@ Change: Replace `pipeline:` with native `spawn:`. The AI agent handles the task 
   stdin: $fetch.json
 ```
 
-**Squid-Claw:**
+**Squid:**
 ```yaml
 - id: process
   type: run
@@ -167,7 +167,7 @@ steps:
     when: $confirm.approved
 ```
 
-### After (Squid-Claw)
+### After (Squid)
 
 ```yaml
 name: jacket-advice
@@ -224,11 +224,11 @@ Same variables work in both:
 
 ## Testing Migration
 
-Lobster had limited testing (script flags). Squid-Claw has a full TestRunner:
+Lobster had limited testing (script flags). Squid has a full TestRunner:
 
 ```typescript
-import { createTestRunner } from "squid-claw/testing";
-import { parseFile } from "squid-claw";
+import { createTestRunner } from "squid/testing";
+import { parseFile } from "squid";
 
 const pipeline = parseFile("jacket-advice.yaml");
 

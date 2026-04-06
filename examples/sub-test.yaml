@@ -3,7 +3,7 @@
 # Runs unit and integration tests, outputs a structured report.
 # Can be called standalone or as a step in a parent pipeline.
 #
-# Standalone:  squid-claw run examples/sub-test.yaml
+# Standalone:  squid run examples/sub-test.yaml
 # As sub-step: See examples/orchestrator.yaml
 
 name: test

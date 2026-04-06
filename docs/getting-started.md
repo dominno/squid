@@ -1,10 +1,10 @@
-# Getting Started with Squid-Claw
+# Getting Started with Squid
 
 ## Installation
 
 ```bash
-git clone <your-repo>/squid-claw
-cd squid-claw
+git clone <your-repo>/squid
+cd squid
 npm install
 npm run build
 ```
@@ -14,7 +14,7 @@ npm run build
 ### 1. Scaffold a pipeline
 
 ```bash
-npx squid-claw init --template basic --name hello
+npx squid init --template basic --name hello
 ```
 
 This creates `hello.yaml`:
@@ -54,7 +54,7 @@ steps:
 ### 2. Validate
 
 ```bash
-npx squid-claw validate hello.yaml
+npx squid validate hello.yaml
 ```
 
 Output:
@@ -70,13 +70,13 @@ Pipeline 'hello' is valid.
 See what would execute without running anything:
 
 ```bash
-npx squid-claw run hello.yaml --dry-run -v
+npx squid run hello.yaml --dry-run -v
 ```
 
 ### 4. Run for Real
 
 ```bash
-npx squid-claw run hello.yaml --args-json '{"env": "staging"}'
+npx squid run hello.yaml --args-json '{"env": "staging"}'
 ```
 
 The pipeline will:
@@ -88,13 +88,13 @@ The pipeline will:
 ### 5. Resume After Approval
 
 ```bash
-npx squid-claw resume hello.yaml --token <token> --approve yes
+npx squid resume hello.yaml --token <token> --approve yes
 ```
 
 ### 6. Visualize
 
 ```bash
-npx squid-claw viz hello.yaml
+npx squid viz hello.yaml
 ```
 
 Outputs a Mermaid diagram you can paste into any Markdown renderer.
@@ -154,12 +154,13 @@ args:
 
 Pass at runtime:
 ```bash
-squid-claw run pipeline.yaml --args-json '{"env": "prod", "image": "app:v2"}'
+squid run pipeline.yaml --args-json '{"env": "prod", "image": "app:v2"}'
 ```
 
 ## Next Steps
 
 - [Step Types Guide](./step-types.md) — Deep dive into each step type
+- [Agent Adapters](./adapters.md) — Setup OpenClaw, Claude Code, OpenCode, or custom agents
 - [Workflow Patterns](./workflow-patterns.md) — Common patterns and recipes
 - [Testing Guide](./testing.md) — How to test your pipelines
 - [Migration from Lobster](./migration.md) — Convert Lobster workflows

@@ -1,8 +1,8 @@
-# Squid-Claw: Video Content Pipeline
+# Squid: Video Content Pipeline
 # Replaces content-video-v11 Bash orchestration with native sub-agents.
 #
 # Usage:
-#   squid-claw run examples/video-pipeline.yaml \
+#   squid run examples/video-pipeline.yaml \
 #     --args-json '{"topic": "AI agents explained", "style": "educational"}'
 
 name: video-pipeline

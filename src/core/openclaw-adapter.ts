@@ -6,9 +6,9 @@
  *   1. Gateway HTTP API (OPENCLAW_URL + OPENCLAW_TOKEN)
  *   2. CLI invocation (openclaw agent --inline)
  *
- * The adapter maps Squid-Claw's SpawnConfig to OpenClaw's SessionsSpawnToolSchema:
+ * The adapter maps Squid's SpawnConfig to OpenClaw's SessionsSpawnToolSchema:
  *
- *   Squid-Claw SpawnConfig  →  OpenClaw sessions_spawn
+ *   Squid SpawnConfig  →  OpenClaw sessions_spawn
  *   ─────────────────────────────────────────────────────
  *   task                    →  task
  *   agentId                 →  agentId
@@ -24,7 +24,7 @@
 
 import { execSync } from "node:child_process";
 import type {
-  OpenClawAdapter,
+  AgentAdapter,
   SpawnConfig,
   SpawnResult,
   StepResult,
@@ -52,7 +52,7 @@ export interface OpenClawConfig {
 
 export function createOpenClawAdapter(
   config: OpenClawConfig = {}
-): OpenClawAdapter {
+): AgentAdapter {
   const resolvedConfig = resolveConfig(config);
 
   if (resolvedConfig.mode === "cli") {
@@ -64,7 +64,7 @@ export function createOpenClawAdapter(
 
 // ─── HTTP Adapter (Gateway API) ───────────────────────────────────────
 
-function createHttpAdapter(config: ResolvedConfig): OpenClawAdapter {
+function createHttpAdapter(config: ResolvedConfig): AgentAdapter {
   const headers = (): Record<string, string> => {
     const h: Record<string, string> = { "Content-Type": "application/json" };
     if (config.token) h["Authorization"] = `Bearer ${config.token}`;
@@ -72,6 +72,7 @@ function createHttpAdapter(config: ResolvedConfig): OpenClawAdapter {
   };
 
   return {
+    name: "openclaw",
     async spawn(spawnConfig: SpawnConfig): Promise<SpawnResult> {
       const payload = mapToSessionsSpawn(spawnConfig);
 
@@ -195,10 +196,11 @@ function createHttpAdapter(config: ResolvedConfig): OpenClawAdapter {
 
 // ─── CLI Adapter ──────────────────────────────────────────────────────
 
-function createCliAdapter(config: ResolvedConfig): OpenClawAdapter {
+function createCliAdapter(config: ResolvedConfig): AgentAdapter {
   const bin = config.cliBin;
 
   return {
+    name: "openclaw",
     async spawn(spawnConfig: SpawnConfig): Promise<SpawnResult> {
       const args: string[] = ["agent", "--inline"];
 
@@ -261,7 +263,7 @@ function createCliAdapter(config: ResolvedConfig): OpenClawAdapter {
 // ─── Payload Mapping ──────────────────────────────────────────────────
 
 /**
- * Maps Squid-Claw SpawnConfig to OpenClaw sessions_spawn tool schema.
+ * Maps Squid SpawnConfig to OpenClaw sessions_spawn tool schema.
  */
 function mapToSessionsSpawn(config: SpawnConfig): Record<string, unknown> {
   const payload: Record<string, unknown> = {

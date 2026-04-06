@@ -1,12 +1,12 @@
 {
-  "name": "squid-claw",
+  "name": "squid",
   "version": "0.1.0",
-  "description": "OpenClaw-native agentic pipeline framework — better than Lobster",
+  "description": "Agentic pipeline framework with pluggable agent runtimes",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "bin": {
-    "squid-claw": "bin/squid-claw.js"
+    "squid": "bin/squid.js"
   },
   "scripts": {
     "build": "tsc",

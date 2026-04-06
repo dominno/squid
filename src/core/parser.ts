@@ -1,5 +1,5 @@
 /**
- * Squid-Claw YAML/JSON Parser
+ * Squid YAML/JSON Parser
  *
  * Parses pipeline definition files into typed Pipeline objects.
  * Validates structure and provides clear error messages.
@@ -71,6 +71,7 @@ export function parsePipeline(raw: unknown, source?: string): Pipeline {
   if (obj.cwd != null) pipeline.cwd = String(obj.cwd);
   if (obj.env != null) pipeline.env = parseEnv(obj.env, source);
   if (obj.args != null) pipeline.args = parseArgs(obj.args, source);
+  if (obj.agent != null) pipeline.agent = String(obj.agent);
   if (obj.onError != null) pipeline.onError = parseErrorStrategy(obj.onError, source);
 
   if (!Array.isArray(obj.steps)) {
@@ -184,6 +185,7 @@ function parseSpawnConfig(raw: unknown, source?: string, path?: string): SpawnCo
     task: requireString(obj, "task", source, path),
   };
 
+  if (obj.agent != null) config.agent = String(obj.agent);
   if (obj.agentId != null) config.agentId = String(obj.agentId);
   if (obj.model != null) config.model = String(obj.model);
   if (obj.thinking != null) config.thinking = obj.thinking as SpawnConfig["thinking"];
