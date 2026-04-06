@@ -150,6 +150,37 @@ describe("claude-code adapter", () => {
     expect(result.output).toEqual({ score: 95, issues: [] });
   });
 
+  it("unwraps Claude Code JSON envelope", async () => {
+    // Claude Code --output-format json wraps result in: { "type": "result", "result": "..." }
+    const envelope = JSON.stringify({
+      type: "result",
+      subtype: "success",
+      is_error: false,
+      result: '{"status": "ok", "agent": "claude-code"}',
+      session_id: "abc-123",
+    });
+    mockExec.mockResolvedValue({ stdout: envelope, stderr: "", exitCode: 0 });
+    const adapter = createClaudeCodeAdapter();
+
+    const result = await adapter.spawn({ task: "test" }, mockCtx());
+
+    // Should extract the inner result and parse it as JSON
+    expect(result.output).toEqual({ status: "ok", agent: "claude-code" });
+  });
+
+  it("unwraps envelope with non-JSON inner result", async () => {
+    const envelope = JSON.stringify({
+      type: "result",
+      result: "Plain text response from agent",
+    });
+    mockExec.mockResolvedValue({ stdout: envelope, stderr: "", exitCode: 0 });
+    const adapter = createClaudeCodeAdapter();
+
+    const result = await adapter.spawn({ task: "test" }, mockCtx());
+
+    expect(result.output).toBe("Plain text response from agent");
+  });
+
   it("returns error on CLI failure", async () => {
     mockExec.mockRejectedValue(new Error("command not found: claude"));
     const adapter = createClaudeCodeAdapter();

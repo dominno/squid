@@ -42,7 +42,25 @@ export function createClaudeCodeAdapter(config: {
 
         let output: unknown = result.stdout.trim();
         try {
-          output = JSON.parse(result.stdout.trim());
+          const parsed = JSON.parse(result.stdout.trim());
+          // Claude Code --output-format json wraps result in envelope:
+          // { "type": "result", "result": "actual output", ... }
+          // Extract the inner result if present
+          if (parsed && typeof parsed === "object" && "result" in parsed && parsed.type === "result") {
+            const inner = (parsed as Record<string, unknown>).result;
+            // Try to parse the inner result as JSON too (it's often a JSON string)
+            if (typeof inner === "string") {
+              try {
+                output = JSON.parse(inner);
+              } catch {
+                output = inner;
+              }
+            } else {
+              output = inner;
+            }
+          } else {
+            output = parsed;
+          }
         } catch {
           // Not JSON — keep as string
         }
