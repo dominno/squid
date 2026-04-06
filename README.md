@@ -600,6 +600,39 @@ See [docs/adapters.md](docs/adapters.md) for full setup instructions for each ad
 | **Principles** | Partial SOLID | Full SOLID/DRY/KISS |
 | **CLI** | `lobster run --file` | `squid run` (file auto-detected) |
 
+## Verify Agent Spawning (E2E)
+
+Test that agent adapters work with a real CLI:
+
+```bash
+# Quick verify — spawns a real Claude Code agent
+squid run skills/squid-pipeline/examples/e2e/e2e-claude-code.yaml -v
+
+# Expected output:
+#   → [hello] spawn...
+#   ✓ [hello] completed (3s)
+#   → [verify] transform...
+#   ✓ [verify] completed (0ms)
+#   { "status": "completed", "output": { "status": "ok", "agent": "claude-code" } }
+```
+
+Run the full e2e test suite:
+
+```bash
+# Requires: claude CLI installed and authenticated
+npm run test:e2e
+```
+
+E2E tests auto-detect which CLIs are installed and skip adapters that aren't available:
+
+| Adapter | CLI needed | Auto-detected |
+|---------|-----------|:-------------:|
+| Claude Code | `claude` | Yes |
+| OpenClaw | `openclaw` + running gateway | Yes |
+| OpenCode | `opencode` | Yes |
+
+E2e example pipelines are in `skills/squid-pipeline/examples/e2e/`.
+
 ## CLI Reference
 
 ```
