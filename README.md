@@ -772,6 +772,56 @@ cp -r /tmp/squid/skills/squid-pipeline ~/.claude/skills/squid-pipeline
 
 After installing, Claude Code automatically loads the skill when you work with pipeline YAML files. You can also invoke it explicitly with `/squid-pipeline`.
 
+### Install in OpenClaw
+
+OpenClaw loads skills from multiple locations. Choose one:
+
+**Option A — Workspace skill (this project only):**
+
+```bash
+# From your OpenClaw workspace root
+cp -r /path/to/squid/skills/squid-pipeline skills/squid-pipeline
+```
+
+**Option B — Personal skill (all workspaces):**
+
+```bash
+cp -r /path/to/squid/skills/squid-pipeline ~/.openclaw/skills/squid-pipeline
+```
+
+**Option C — Extra dirs (point to the Squid repo):**
+
+Add to `~/.openclaw/openclaw.json`:
+
+```json
+{
+  "skills": {
+    "load": {
+      "extraDirs": ["/path/to/squid/skills"]
+    }
+  }
+}
+```
+
+**Option D — Agent allowlist (restrict to specific agents):**
+
+```json
+{
+  "agents": {
+    "defaults": {
+      "skills": ["squid-pipeline"]
+    }
+  }
+}
+```
+
+Verify it's loaded:
+
+```bash
+openclaw skills list | grep squid
+openclaw skills info squid-pipeline
+```
+
 ### Install in other AI tools
 
 | Tool | How to install |
@@ -779,7 +829,6 @@ After installing, Claude Code automatically loads the skill when you work with p
 | **Claude (claude.ai)** | Upload `SKILL.md` to Project Knowledge, or paste as conversation attachment |
 | **ChatGPT / Custom GPTs** | Upload `SKILL.md` as a knowledge file, or paste into system instructions |
 | **Cursor / Windsurf** | Copy `skills/squid-pipeline/` into `.cursor/skills/` or project root |
-| **OpenClaw** | Attach via `sessions_spawn` attachments or add to agent system prompt |
 | **Any LLM API** | Include `SKILL.md` content in the system prompt |
 
 ### What's in the skill
