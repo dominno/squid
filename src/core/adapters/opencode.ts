@@ -2,13 +2,15 @@
  * OpenCode Agent Adapter
  *
  * Spawns sub-agents via OpenCode CLI (`opencode`).
- * Each spawn step becomes an `opencode run` invocation.
+ * Each spawn step becomes an `opencode run --message "task"` invocation.
+ *
+ * Uses async execution (non-blocking) to support parallel spawns.
  *
  * Requires: OpenCode CLI installed and configured.
  * Env: OPENCODE_MODEL (optional model override)
  */
 
-import { execSync } from "node:child_process";
+import { execAsync, shellEscape } from "../async-exec.js";
 import type { AgentAdapter, SpawnConfig, SpawnResult, StepResult, PipelineContext } from "../types.js";
 
 export function createOpenCodeAdapter(config: {
@@ -22,10 +24,7 @@ export function createOpenCodeAdapter(config: {
     name: "opencode",
 
     async spawn(spawnConfig: SpawnConfig, ctx: PipelineContext): Promise<SpawnResult> {
-      const args: string[] = ["run"];
-
-      // Task as inline message
-      args.push("--message", shellEscape(spawnConfig.task));
+      const args: string[] = ["run", "--message", spawnConfig.task];
 
       // Model override
       const model = spawnConfig.model ?? defaultModel;
@@ -33,23 +32,17 @@ export function createOpenCodeAdapter(config: {
         args.push("--model", model);
       }
 
-      // Working directory
       const cwd = spawnConfig.cwd ?? ctx.cwd;
 
       try {
-        const stdout = execSync(
-          `${bin} ${args.join(" ")}`,
-          {
-            encoding: "utf-8",
-            timeout: (spawnConfig.timeout ?? 600) * 1000,
-            cwd,
-            maxBuffer: 50 * 1024 * 1024,
-          }
-        );
+        const result = await execAsync(bin, args, {
+          cwd,
+          timeoutMs: (spawnConfig.timeout ?? 600) * 1000,
+        });
 
-        let output: unknown = stdout.trim();
+        let output: unknown = result.stdout.trim();
         try {
-          output = JSON.parse(stdout.trim());
+          output = JSON.parse(result.stdout.trim());
         } catch {
           // Not JSON — keep as string
         }
@@ -59,10 +52,10 @@ export function createOpenCodeAdapter(config: {
           output,
         };
       } catch (err: unknown) {
-        const error = err as { message?: string; status?: number };
+        const error = err as { message?: string; exitCode?: number };
         return {
           status: "error",
-          error: error.message ?? `opencode exited with status ${error.status}`,
+          error: error.message ?? `opencode exited with code ${error.exitCode}`,
         };
       }
     },
@@ -71,7 +64,7 @@ export function createOpenCodeAdapter(config: {
       return {
         stepId: "",
         status: "completed",
-        output: { note: "opencode adapter: spawn completed synchronously" },
+        output: { note: "opencode adapter: spawn completed asynchronously" },
       };
     },
 
@@ -79,8 +72,4 @@ export function createOpenCodeAdapter(config: {
       return "completed";
     },
   };
-}
-
-function shellEscape(s: string): string {
-  return `'${s.replace(/'/g, "'\\''")}'`;
 }

@@ -38,6 +38,7 @@ import { parseFile } from "./parser.js";
 import { resolveAdapter } from "./adapters/registry.js";
 import { createNoopEmitter, createEvent } from "./events.js";
 import { generateShortId, registerShortId, validateGateInput, validateApprover } from "./gate-utils.js";
+import { createOpenClawAdapter } from "./openclaw-adapter.js";
 
 // ─── Public API ───────────────────────────────────────────────────────
 
@@ -1109,135 +1110,8 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-// ─── Default OpenClaw Adapter ─────────────────────────────────────────
+// ─── Default Adapter ──────────────────────────────────────────────────
 
 function createDefaultAdapter(): AgentAdapter {
-  return {
-    name: "openclaw",
-    async spawn(config: SpawnConfig): Promise<{
-      status: "accepted" | "forbidden" | "error";
-      childSessionKey?: string;
-      output?: unknown;
-      error?: string;
-    }> {
-      // Default: call OpenClaw CLI via shell
-      const url = process.env.OPENCLAW_URL ?? process.env.CLAWD_URL;
-      const token = process.env.OPENCLAW_TOKEN ?? process.env.CLAWD_TOKEN;
-
-      if (!url) {
-        throw new Error(
-          "OPENCLAW_URL not set. Provide an OpenClawAdapter or set OPENCLAW_URL env var."
-        );
-      }
-
-      const payload = {
-        task: config.task,
-        agentId: config.agentId,
-        model: config.model,
-        thinking: config.thinking,
-        runtime: config.runtime ?? "subagent",
-        cwd: config.cwd,
-        runTimeoutSeconds: config.timeout,
-        mode: config.mode ?? "run",
-        sandbox: config.sandbox,
-      };
-
-      const headers: Record<string, string> = {
-        "Content-Type": "application/json",
-      };
-      if (token) headers["Authorization"] = `Bearer ${token}`;
-
-      const response = await fetch(`${url}/api/sessions/spawn`, {
-        method: "POST",
-        headers,
-        body: JSON.stringify(payload),
-      });
-
-      if (!response.ok) {
-        return {
-          status: "error",
-          error: `HTTP ${response.status}: ${await response.text()}`,
-        };
-      }
-
-      return await response.json() as {
-        status: "accepted" | "forbidden" | "error";
-        childSessionKey?: string;
-        output?: unknown;
-        error?: string;
-      };
-    },
-
-    async waitForCompletion(
-      childSessionKey: string,
-      timeoutMs = 600_000
-    ): Promise<StepResult> {
-      const url = process.env.OPENCLAW_URL ?? process.env.CLAWD_URL;
-      if (!url) throw new Error("OPENCLAW_URL not set");
-
-      const token = process.env.OPENCLAW_TOKEN ?? process.env.CLAWD_TOKEN;
-      const headers: Record<string, string> = {};
-      if (token) headers["Authorization"] = `Bearer ${token}`;
-
-      const deadline = Date.now() + timeoutMs;
-      const pollInterval = 2000;
-
-      while (Date.now() < deadline) {
-        const response = await fetch(
-          `${url}/api/sessions/${childSessionKey}/status`,
-          { headers }
-        );
-
-        if (response.ok) {
-          const data = await response.json() as {
-            status: string;
-            output?: unknown;
-          };
-          if (data.status === "done" || data.status === "completed") {
-            return {
-              stepId: "",
-              status: "completed",
-              output: data.output,
-            };
-          }
-          if (data.status === "failed" || data.status === "error") {
-            return {
-              stepId: "",
-              status: "failed",
-              error: { message: `Spawned session failed: ${childSessionKey}` },
-            };
-          }
-        }
-
-        await sleep(pollInterval);
-      }
-
-      return {
-        stepId: "",
-        status: "failed",
-        error: { message: `Timeout waiting for session ${childSessionKey}` },
-      };
-    },
-
-    /* v8 ignore start -- getSessionStatus is not called in pipeline flow; used for external polling */
-    async getSessionStatus(sessionKey: string) {
-      const url = process.env.OPENCLAW_URL ?? process.env.CLAWD_URL;
-      if (!url) throw new Error("OPENCLAW_URL not set");
-
-      const token = process.env.OPENCLAW_TOKEN ?? process.env.CLAWD_TOKEN;
-      const headers: Record<string, string> = {};
-      if (token) headers["Authorization"] = `Bearer ${token}`;
-
-      const response = await fetch(
-        `${url}/api/sessions/${sessionKey}/status`,
-        { headers }
-      );
-
-      if (!response.ok) return "failed" as const;
-
-      const data = await response.json() as { status: string };
-      return (data.status ?? "pending") as "pending" | "running" | "completed" | "failed";
-    },
-    /* v8 ignore stop */
-  };
+  return createOpenClawAdapter();
 }

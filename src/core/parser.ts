@@ -200,7 +200,7 @@ function parseSpawnConfig(raw: unknown, source?: string, path?: string): SpawnCo
   if (obj.agent != null) config.agent = String(obj.agent);
   if (obj.agentId != null) config.agentId = String(obj.agentId);
   if (obj.model != null) config.model = String(obj.model);
-  if (obj.thinking != null) config.thinking = validateEnum(obj.thinking, ["off", "low", "high"], "thinking", source, path);
+  if (obj.thinking != null) config.thinking = validateEnum(obj.thinking, ["off", "minimal", "low", "medium", "high", "xhigh"], "thinking", source, path);
   if (obj.runtime != null) config.runtime = validateEnum(obj.runtime, ["subagent", "acp"], "runtime", source, path);
   if (obj.cwd != null) config.cwd = String(obj.cwd);
   if (obj.timeout != null) config.timeout = validatePositive(obj.timeout, "timeout", source, path);

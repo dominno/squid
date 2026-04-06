@@ -18,8 +18,11 @@ import { runPipeline, type RunOptions, type RunResult } from "../core/runtime.js
 import { decodeResumeToken, encodeResumeToken } from "../core/resume.js";
 import { buildGraph, toMermaid } from "../core/graph.js";
 import { runTestFile, type TestSuiteResult } from "../testing/yaml-runner.js";
+import { setupBuiltinAdapters } from "../core/adapters/setup.js";
 
 async function main() {
+  // Register built-in agent adapters (openclaw, claude-code, opencode)
+  setupBuiltinAdapters();
   const args = process.argv.slice(2);
   const command = args[0];
 

@@ -81,7 +81,7 @@ export interface SpawnConfig {
   agent?: string;                  // Agent adapter to use: "openclaw" | "claude-code" | "opencode" | custom
   agentId?: string;                // Target agent ID (OpenClaw-specific)
   model?: string;                  // Model override
-  thinking?: "off" | "low" | "high";
+  thinking?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
   runtime?: "subagent" | "acp";   // OpenClaw runtime mode
   cwd?: string;                   // Workspace directory
   timeout?: number;                // Seconds

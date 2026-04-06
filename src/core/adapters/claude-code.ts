@@ -2,13 +2,15 @@
  * Claude Code Agent Adapter
  *
  * Spawns sub-agents via Claude Code CLI (`claude`).
- * Each spawn step becomes a `claude -p "task"` invocation.
+ * Each spawn step becomes a `claude -p "task" --output-format json` invocation.
+ *
+ * Uses async execution (non-blocking) to support parallel spawns.
  *
  * Requires: Claude Code CLI installed and authenticated.
  * Env: CLAUDE_MODEL (optional model override)
  */
 
-import { execSync } from "node:child_process";
+import { execAsync, shellEscape } from "../async-exec.js";
 import type { AgentAdapter, SpawnConfig, SpawnResult, StepResult, PipelineContext } from "../types.js";
 
 export function createClaudeCodeAdapter(config: {
@@ -22,10 +24,7 @@ export function createClaudeCodeAdapter(config: {
     name: "claude-code",
 
     async spawn(spawnConfig: SpawnConfig, ctx: PipelineContext): Promise<SpawnResult> {
-      const args: string[] = ["-p"];
-
-      // Task as the prompt
-      args.push(shellEscape(spawnConfig.task));
+      const args: string[] = ["-p", spawnConfig.task, "--output-format", "json"];
 
       // Model override
       const model = spawnConfig.model ?? defaultModel;
@@ -33,26 +32,17 @@ export function createClaudeCodeAdapter(config: {
         args.push("--model", model);
       }
 
-      // Working directory
       const cwd = spawnConfig.cwd ?? ctx.cwd;
 
-      // Output format
-      args.push("--output-format", "json");
-
       try {
-        const stdout = execSync(
-          `${bin} ${args.join(" ")}`,
-          {
-            encoding: "utf-8",
-            timeout: (spawnConfig.timeout ?? 600) * 1000,
-            cwd,
-            maxBuffer: 50 * 1024 * 1024,
-          }
-        );
+        const result = await execAsync(bin, args, {
+          cwd,
+          timeoutMs: (spawnConfig.timeout ?? 600) * 1000,
+        });
 
-        let output: unknown = stdout.trim();
+        let output: unknown = result.stdout.trim();
         try {
-          output = JSON.parse(stdout.trim());
+          output = JSON.parse(result.stdout.trim());
         } catch {
           // Not JSON — keep as string
         }
@@ -62,20 +52,19 @@ export function createClaudeCodeAdapter(config: {
           output,
         };
       } catch (err: unknown) {
-        const error = err as { message?: string; status?: number };
+        const error = err as { message?: string; exitCode?: number };
         return {
           status: "error",
-          error: error.message ?? `claude exited with status ${error.status}`,
+          error: error.message ?? `claude exited with code ${error.exitCode}`,
         };
       }
     },
 
     async waitForCompletion(): Promise<StepResult> {
-      // Claude Code CLI is synchronous — spawn already waited
       return {
         stepId: "",
         status: "completed",
-        output: { note: "claude-code adapter: spawn completed synchronously" },
+        output: { note: "claude-code adapter: spawn completed asynchronously" },
       };
     },
 
@@ -83,8 +72,4 @@ export function createClaudeCodeAdapter(config: {
       return "completed";
     },
   };
-}
-
-function shellEscape(s: string): string {
-  return `'${s.replace(/'/g, "'\\''")}'`;
 }

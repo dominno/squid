@@ -28,7 +28,7 @@ describe("spawn validation", () => {
   });
 
   it("accepts valid thinking values", () => {
-    for (const val of ["off", "low", "high"]) {
+    for (const val of ["off", "minimal", "low", "medium", "high", "xhigh"]) {
       const p = parsePipeline({ name: "t", steps: [{ id: "s", spawn: { task: "x", thinking: val } }] });
       expect(p.steps[0].spawn?.thinking).toBe(val);
     }

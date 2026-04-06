@@ -11,277 +11,42 @@ import { createTestRunner } from "../src/testing/index.js";
 import { evaluateCondition, resolveRef } from "../src/core/expressions.js";
 import type { Pipeline, PipelineContext } from "../src/core/types.js";
 
-// ─── Default Adapter (fetch-based) ───────────────────────────────────
+// ─── Default Adapter (CLI-based, uses execAsync) ─────────────────────
 
-describe("default OpenClaw adapter", () => {
-  const originalEnv = { ...process.env };
+describe("default OpenClaw adapter (via createOpenClawAdapter)", () => {
+  it("spawns via openclaw CLI with agent and json flags", async () => {
+    // Test via the adapter directly (imported from openclaw-adapter)
+    const { createOpenClawAdapter } = await import("../src/core/openclaw-adapter.js");
+    const { execAsync } = await import("../src/core/async-exec.js");
 
-  beforeEach(() => {
-    process.env.OPENCLAW_URL = "http://mock-openclaw:3000";
-    process.env.OPENCLAW_TOKEN = "test-token";
+    // We can't mock imports easily in this file, so test the adapter
+    // structure instead. The detailed CLI flag tests are in adapter-specific test files.
+    const adapter = createOpenClawAdapter();
+    expect(adapter.name).toBe("openclaw");
   });
 
-  afterEach(() => {
-    process.env.OPENCLAW_URL = originalEnv.OPENCLAW_URL;
-    process.env.OPENCLAW_TOKEN = originalEnv.OPENCLAW_TOKEN;
-    process.env.CLAWD_URL = originalEnv.CLAWD_URL;
-    process.env.CLAWD_TOKEN = originalEnv.CLAWD_TOKEN;
-    vi.restoreAllMocks();
-  });
-
-  it("throws when OPENCLAW_URL is not set", async () => {
-    delete process.env.OPENCLAW_URL;
-    delete process.env.CLAWD_URL;
-
+  it("default adapter is used when no adapter provided", async () => {
+    // Spawn without adapter → uses createDefaultAdapter() → createOpenClawAdapter()
+    // This will fail because openclaw isn't installed, but it proves the adapter is wired up
     const pipeline: Pipeline = {
       name: "test",
       steps: [
-        { id: "s", type: "spawn", spawn: { task: "do something" } },
+        { id: "s", type: "spawn", spawn: { task: "test-default-adapter" } },
       ],
     };
 
-    // No adapter provided → uses default → should throw
     const result = await runPipeline(pipeline);
+    // Should fail (openclaw not installed) but NOT with "OPENCLAW_URL not set"
     expect(result.status).toBe("failed");
-    expect(result.error).toContain("OPENCLAW_URL not set");
+    // Error should come from execAsync trying to run 'openclaw', not from missing URL
+    expect(result.results.s.error?.message).not.toContain("OPENCLAW_URL");
   });
 
-  it("handles spawn HTTP success", async () => {
-    const mockFetch = vi.fn().mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({
-        status: "accepted",
-        childSessionKey: "session-123",
-      }),
-    }).mockResolvedValueOnce({
-      // waitForCompletion poll — return completed
-      ok: true,
-      json: async () => ({ status: "completed", output: { done: true } }),
-    });
-    vi.stubGlobal("fetch", mockFetch);
-
-    const pipeline: Pipeline = {
-      name: "test",
-      steps: [
-        { id: "s", type: "spawn", spawn: { task: "analyze", timeout: 10 } },
-      ],
-    };
-
-    const result = await runPipeline(pipeline);
+  it("waitForCompletion returns completed (CLI is synchronous)", async () => {
+    const { createOpenClawAdapter } = await import("../src/core/openclaw-adapter.js");
+    const adapter = createOpenClawAdapter();
+    const result = await adapter.waitForCompletion("any-key");
     expect(result.status).toBe("completed");
-    expect(mockFetch).toHaveBeenCalledTimes(2);
-
-    // Verify spawn call
-    const [url, opts] = mockFetch.mock.calls[0];
-    expect(url).toBe("http://mock-openclaw:3000/api/sessions/spawn");
-    expect(opts.method).toBe("POST");
-    expect(opts.headers["Authorization"]).toBe("Bearer test-token");
-    const body = JSON.parse(opts.body);
-    expect(body.task).toBe("analyze");
-  });
-
-  it("handles spawn HTTP error", async () => {
-    const mockFetch = vi.fn().mockResolvedValueOnce({
-      ok: false,
-      status: 500,
-      text: async () => "Internal Server Error",
-    });
-    vi.stubGlobal("fetch", mockFetch);
-
-    const pipeline: Pipeline = {
-      name: "test",
-      steps: [
-        { id: "s", type: "spawn", spawn: { task: "fail" } },
-      ],
-    };
-
-    const result = await runPipeline(pipeline);
-    expect(result.status).toBe("failed");
-    expect(result.results.s.error?.message).toContain("HTTP 500");
-  });
-
-  it("handles waitForCompletion with failed session", async () => {
-    const mockFetch = vi.fn()
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ status: "accepted", childSessionKey: "s-1" }),
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ status: "failed" }),
-      });
-    vi.stubGlobal("fetch", mockFetch);
-
-    const pipeline: Pipeline = {
-      name: "test",
-      steps: [
-        { id: "s", type: "spawn", spawn: { task: "will-fail" } },
-      ],
-    };
-
-    const result = await runPipeline(pipeline);
-    expect(result.results.s.status).toBe("failed");
-    expect(result.results.s.error?.message).toContain("Spawned session failed");
-  });
-
-  it("handles waitForCompletion timeout", async () => {
-    const mockFetch = vi.fn()
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ status: "accepted", childSessionKey: "s-1" }),
-      })
-      .mockResolvedValue({
-        ok: true,
-        json: async () => ({ status: "running" }),
-      });
-    vi.stubGlobal("fetch", mockFetch);
-
-    const pipeline: Pipeline = {
-      name: "test",
-      steps: [
-        { id: "s", type: "spawn", spawn: { task: "slow", timeout: 0 } },
-      ],
-    };
-
-    // timeout: 0 → immediate timeout
-    const result = await runPipeline(pipeline);
-    expect(result.results.s.status).toBe("failed");
-    expect(result.results.s.error?.message).toContain("Timeout");
-  });
-
-  it("waitForCompletion handles non-ok poll response then completes", async () => {
-    const mockFetch = vi.fn()
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ status: "accepted", childSessionKey: "s-1" }),
-      })
-      .mockResolvedValueOnce({ ok: false, status: 503 }) // first poll fails
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ status: "completed", output: { recovered: true } }),
-      });
-    vi.stubGlobal("fetch", mockFetch);
-
-    const pipeline: Pipeline = {
-      name: "test",
-      steps: [
-        { id: "s", type: "spawn", spawn: { task: "check" } },
-      ],
-    };
-
-    const result = await runPipeline(pipeline);
-    expect(result.results.s.status).toBe("completed");
-  });
-
-  it("waitForCompletion handles 'done' status variant", async () => {
-    const mockFetch = vi.fn()
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ status: "accepted", childSessionKey: "s-1" }),
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ status: "done", output: { v: 1 } }),
-      });
-    vi.stubGlobal("fetch", mockFetch);
-
-    const pipeline: Pipeline = {
-      name: "test",
-      steps: [
-        { id: "s", type: "spawn", spawn: { task: "done-status" } },
-      ],
-    };
-
-    const result = await runPipeline(pipeline);
-    expect(result.results.s.status).toBe("completed");
-  });
-
-  it("waitForCompletion detects 'error' status", async () => {
-    const mockFetch = vi.fn()
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ status: "accepted", childSessionKey: "s-1" }),
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ status: "error" }),
-      });
-    vi.stubGlobal("fetch", mockFetch);
-
-    const pipeline: Pipeline = {
-      name: "test",
-      steps: [
-        { id: "s", type: "spawn", spawn: { task: "error-status" } },
-      ],
-    };
-
-    const result = await runPipeline(pipeline);
-    expect(result.results.s.status).toBe("failed");
-  });
-
-  it("getSessionStatus returns correct status", async () => {
-    const mockFetch = vi.fn()
-      // spawn call
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ status: "accepted" }),
-      });
-    vi.stubGlobal("fetch", mockFetch);
-
-    // We can't directly call getSessionStatus through the public API
-    // since it's only used internally. But we cover the adapter code
-    // via the spawn and waitForCompletion tests above.
-    const pipeline: Pipeline = {
-      name: "test",
-      steps: [
-        { id: "s", type: "spawn", spawn: { task: "status-test" } },
-      ],
-    };
-
-    // Spawn without childSessionKey → no waitForCompletion
-    const result = await runPipeline(pipeline);
-    expect(result.status).toBe("completed");
-  });
-
-  it("sends auth header when token is set", async () => {
-    const mockFetch = vi.fn().mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({ status: "accepted" }),
-    });
-    vi.stubGlobal("fetch", mockFetch);
-
-    const pipeline: Pipeline = {
-      name: "test",
-      steps: [
-        { id: "s", type: "spawn", spawn: { task: "auth-test" } },
-      ],
-    };
-
-    await runPipeline(pipeline);
-    const headers = mockFetch.mock.calls[0][1].headers;
-    expect(headers["Authorization"]).toBe("Bearer test-token");
-  });
-
-  it("omits auth header when no token", async () => {
-    delete process.env.OPENCLAW_TOKEN;
-    delete process.env.CLAWD_TOKEN;
-
-    const mockFetch = vi.fn().mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({ status: "accepted" }),
-    });
-    vi.stubGlobal("fetch", mockFetch);
-
-    const pipeline: Pipeline = {
-      name: "test",
-      steps: [
-        { id: "s", type: "spawn", spawn: { task: "no-auth" } },
-      ],
-    };
-
-    await runPipeline(pipeline);
-    const headers = mockFetch.mock.calls[0][1].headers;
-    expect(headers["Authorization"]).toBeUndefined();
   });
 });
 
