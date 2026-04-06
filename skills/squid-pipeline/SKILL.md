@@ -33,14 +33,54 @@ squid run pipeline.yaml
 
 Requires **Node.js 20+**.
 
+## Mandatory Rules
+
+These rules are NON-NEGOTIABLE. Every pipeline you generate MUST follow all of them. Violations are bugs.
+
+### R1: Gate before side effects
+Any step that modifies external state (git push, API POST, deploy, file write to shared storage, PR creation, sending messages) MUST be preceded by a `type: gate` step. The side-effect step MUST have `when: $gate.approved` in its condition.
+
+### R2: Every pipeline and sub-pipeline MUST set `onError`
+Always set `onError: fail` (or `skip`/`continue` with justification). Never omit it — the default behavior is implicit and error-prone.
+
+### R3: Every `spawn` step MUST specify output format and `timeout`
+In the `task` field, always end with `Output JSON: { ... }` showing the exact shape. Always set `timeout` (seconds). No exceptions.
+
+### R4: Every `run` step that calls an external API or network MUST have `retry`
+Use `retry: { maxAttempts: 2, backoff: fixed }` minimum. Network calls are flaky by nature.
+
+### R5: Every `loop` MUST have `maxIterations`
+Prevents runaway execution. No exceptions.
+
+### R6: Downstream steps MUST guard on upstream success
+If step B depends on step A's output, step B MUST have a `when:` condition that checks the relevant output field. Especially critical after `restart:` loops — downstream steps must check the final approval/success state, not just whether the step ran.
+
+### R7: `transform` steps use JSON templates with `$ref` interpolation only
+Transforms support: `$stepId.json`, `$stepId.json.field`, `"${args.key}"`, string interpolation. They do NOT support: ternary operators (`? :`), JavaScript expressions, function calls, or arithmetic. If you need conditional output, use a `branch` step instead.
+
+### R8: Every pipeline MUST have a `.test.yaml` covering at minimum
+1. **Happy path** — all gates approved, all steps succeed
+2. **Gate rejection** — verify side-effect steps are skipped
+3. **Step failure** — verify error propagation
+4. **Restart exhaustion** (if `restart:` is used) — verify behavior when maxRestarts is reached without meeting the threshold
+
+### R9: `spawn` tasks that clone repos MUST use deterministic branch checkout
+Never use shell inference (`git log --format=%D | grep ...`). Instead use:
+- For PRs: `git fetch origin pull/{number}/head:pr-{number} && git checkout pr-{number}`
+- For branches: pass the branch name explicitly via pipeline args or prior step output
+
+### R10: No unused code or imports in scripts
+Scripts MUST be clean — no unused imports, no dead code, no placeholder comments.
+
 ## Pipeline Structure
 
-Build Squid pipelines in YAML. Every pipeline has `name`, `steps`, and optional `args`/`env`/`agent`.
+Build Squid pipelines in YAML. Every pipeline has `name`, `steps`, and required `onError` (see R2).
 
 ```yaml
 name: <pipeline-name>              # REQUIRED
-description: <what it does>
+description: <what it does>        # REQUIRED
 agent: claude-code                 # default agent adapter for spawn steps
+onError: fail                      # REQUIRED (R2) — fail | skip | continue
 args:
   <key>:
     default: <value>
@@ -48,12 +88,11 @@ args:
     required: true
 env:
   KEY: value
-onError: fail                      # fail | skip | continue
 
 steps:
-  - id: <unique-id>               # REQUIRED
+  - id: <unique-id>               # REQUIRED — unique per step
     type: <step-type>              # REQUIRED
-    description: <label>           # recommended
+    description: <label>           # REQUIRED
 ```
 
 **Rules**: unique `id` per step, sequential execution, outputs available as `$stepId.json`.
@@ -68,7 +107,7 @@ steps:
 | `parallel` | `parallel: { branches, maxConcurrent }` | Fan-out/fan-in |
 | `loop` | `loop: { over, as, steps, maxConcurrent }` | Iterate array |
 | `branch` | `branch: { conditions, default }` | Conditional routing |
-| `transform` | `transform: "$ref"` | Data shaping |
+| `transform` | `transform: "$ref"` | Data shaping (R7: JSON templates only, no JS expressions) |
 | `pipeline` | `pipeline: { file, args }` | Sub-pipeline |
 
 See `references/step-types.md` for full config options and examples.
@@ -79,14 +118,13 @@ See `references/step-types.md` for full config options and examples.
 - id: analyze
   type: spawn
   spawn:
-    task: "Analyze code. Output JSON: { issues: [], score: number }"
+    task: "Analyze code. Output JSON: { issues: [], score: number }"   # R3: always specify output format
     agent: claude-code             # openclaw | claude-code | opencode | custom
     model: claude-sonnet-4-6
-    timeout: 300
+    timeout: 300                   # R3: always set timeout
 ```
 
 Set pipeline-level default: `agent: claude-code` at root. Override per step.
-Always specify **output format** in `task`. Always set `timeout`.
 
 ## Gate — Structured Input + Identity
 
@@ -110,17 +148,19 @@ Always specify **output format** in `task`. Always set `timeout`.
 - Access input: `$gate.json.input.env`, `$gate.json.approvedBy`
 - Input validated: type, required, regex, select options
 
+**R1 reminder**: Every step after a gate that performs side effects MUST check `when: $gateId.approved`.
+
 ## Common Options
 
 Apply to any step:
 
 ```yaml
-when: $approve.approved && $test.json.pass   # conditional
-retry: { maxAttempts: 3, backoff: exponential-jitter }
+when: $approve.approved && $test.json.pass   # conditional (R6: guard on upstream)
+retry: { maxAttempts: 3, backoff: exponential-jitter }  # R4: required for network calls
 restart: { step: write, when: $review.json.score < 80, maxRestarts: 3 }
 timeout: 300
 env: { KEY: value }
-description: "Human-readable label"
+description: "Human-readable label"          # REQUIRED on every step
 ```
 
 ## Data Flow
@@ -139,15 +179,17 @@ Interpolation: `${args.key}`, `${stepId.json.field}` in strings.
 
 ## Key Patterns
 
-**Plan → Gate → Execute**: Always gate before side effects.
+**Plan → Gate → Execute** (R1): Always gate before side effects. No spawn/run that pushes, deploys, or mutates external state without a preceding gate.
 
 **Parallel Agents → Review**: Fan out to specialists, then aggregate.
 
-**Iterative Refinement**: `restart:` loops back until quality threshold met.
+**Iterative Refinement**: `restart:` loops back until quality threshold met. Downstream steps MUST guard on the final result (R6) — e.g., `when: $review.json.approved`.
 
-**Sub-Pipeline Composition**: Break large workflows into `type: pipeline` stages.
+**Sub-Pipeline Composition**: Break large workflows into `type: pipeline` stages. Each sub-pipeline MUST set its own `onError` (R2).
 
 **Error Handling**: `branch:` on `$step.status == "failed"` with rollback.
+
+**Retry on network calls** (R4): Any `run` step hitting an external API (GitHub, Slack, HTTP) MUST have `retry`.
 
 See `references/patterns.md` for full examples.
 
@@ -169,7 +211,7 @@ Working pipeline examples in `examples/`:
 
 ## Testing
 
-Create `pipeline.test.yaml` alongside `pipeline.yaml`:
+Create `pipeline.test.yaml` alongside `pipeline.yaml`. **R8: Every pipeline MUST have tests.**
 
 ```yaml
 pipeline: ./pipeline.yaml
@@ -191,6 +233,12 @@ tests:
 
 Modes: `sandbox` (all mocked) | `integration` (run steps execute).
 Run: `squid test` (auto-discovers) or `squid test file.test.yaml`.
+
+**Required test coverage (R8):**
+1. Happy path — all approved, all succeed
+2. Gate rejection — side-effect steps skipped
+3. Step failure — error propagation correct
+4. Restart exhaustion — if `restart:` used, test what happens when threshold is never met
 
 See `references/testing.md` for assertion types and examples.
 
@@ -226,22 +274,21 @@ squid viz <file>
 squid init --template basic|agent|parallel|full --name <name>
 ```
 
-## Anti-Patterns
+## Pre-Delivery Checklist
 
-1. **No spawn output format** — always tell the agent what JSON shape to return
-2. **No timeout** on spawn/run — agents can hang forever
-3. **No gate before side effects** — gate destructive operations
-4. **Deep nesting** — use `type: pipeline` instead
-5. **No maxIterations** on loops — prevent runaway execution
-6. **autoApprove in production** — only for dev/CI
+Before delivering any pipeline to the user, verify ALL items. If any item fails, fix before delivering.
 
-## Checklist
-
+- [ ] Every pipeline and sub-pipeline has `onError` set **(R2)**
 - [ ] Every step has unique `id` and `description`
-- [ ] `spawn` steps specify output format and `timeout`
-- [ ] Destructive ops are gated
-- [ ] Loops have `maxIterations`
-- [ ] Flaky ops have `retry`
-- [ ] Complex pipelines use sub-pipelines
-- [ ] `.test.yaml` covers happy path, rejection, and errors
-- [ ] `squid validate` and `squid test` pass
+- [ ] Every `spawn` step specifies output format in `task` and has `timeout` **(R3)**
+- [ ] Every `run` step hitting external APIs has `retry` **(R4)**
+- [ ] Every step that mutates external state is preceded by a `gate` **(R1)**
+- [ ] Every step after a gate checks `$gate.approved` in its `when:` **(R1)**
+- [ ] Every step depending on upstream output has a `when:` guard **(R6)**
+- [ ] Steps downstream of `restart:` guard on the final success/approval state **(R6)**
+- [ ] Every `loop` has `maxIterations` **(R5)**
+- [ ] `transform` steps use only JSON templates, no JS expressions **(R7)**
+- [ ] Repo checkout uses deterministic branch refs, not shell inference **(R9)**
+- [ ] `.test.yaml` covers happy path, rejection, failure, and restart exhaustion **(R8)**
+- [ ] `squid validate` passes on all pipeline files
+- [ ] Scripts have no unused imports or dead code **(R10)**
