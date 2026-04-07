@@ -216,6 +216,15 @@ function parseSpawnConfig(raw: unknown, source?: string, path?: string): SpawnCo
     }));
   }
 
+  // Warn: model has no effect with openclaw + runtime: subagent
+  if (config.model && config.runtime === "subagent") {
+    console.warn(
+      `Warning: ${path ? path + " — " : ""}'model' is ignored with runtime: subagent. ` +
+      `The OpenClaw agent uses its own configured model. ` +
+      `'model' only applies with runtime: acp or claude-code/opencode adapters.`
+    );
+  }
+
   return config;
 }
 

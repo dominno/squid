@@ -15,6 +15,7 @@
  */
 
 import { execAsync, shellEscape } from "./async-exec.js";
+import { parseAgentOutput } from "./json-extract.js";
 import type {
   AgentAdapter,
   SpawnConfig,
@@ -30,10 +31,6 @@ export interface OpenClawConfig {
   bin?: string;
   /** Default agent to use (default: "main") */
   defaultAgent?: string;
-  /** Auth token (or set OPENCLAW_TOKEN / OPENCLAW_GATEWAY_TOKEN env) */
-  token?: string;
-  /** Default poll interval for waiting (ms) */
-  pollIntervalMs?: number;
   /** Default spawn timeout (seconds) */
   defaultTimeoutSeconds?: number;
 }
@@ -43,10 +40,6 @@ export interface OpenClawConfig {
 export function createOpenClawAdapter(config: OpenClawConfig = {}): AgentAdapter {
   const bin = config.bin ?? "openclaw";
   const defaultAgent = config.defaultAgent ?? "main";
-  const token = config.token
-    ?? process.env.OPENCLAW_TOKEN
-    ?? process.env.OPENCLAW_GATEWAY_TOKEN
-    ?? process.env.CLAWD_TOKEN;
   const defaultTimeout = config.defaultTimeoutSeconds ?? 600;
 
   return {
@@ -73,22 +66,13 @@ export function createOpenClawAdapter(config: OpenClawConfig = {}): AgentAdapter
 
       args.push("--message", spawnInstruction);
 
-      const env: Record<string, string | undefined> = { ...process.env };
-      if (token) env.OPENCLAW_TOKEN = token;
-
       try {
         const result = await execAsync(bin, args, {
           cwd: spawnConfig.cwd ?? ctx.cwd,
-          env,
           timeoutMs: (timeout + 30) * 1000, // extra 30s buffer over agent timeout
         });
 
-        let output: unknown = result.stdout.trim();
-        try {
-          output = JSON.parse(result.stdout.trim());
-        } catch {
-          // Not JSON — keep as string
-        }
+        const output = parseAgentOutput(result.stdout);
 
         // Try to extract session key from output
         const childSessionKey = extractSessionKey(result.stdout);

@@ -82,16 +82,6 @@ describe("openclaw adapter", () => {
     expect(mockExec.mock.calls[0][0]).toBe("/opt/openclaw");
   });
 
-  it("passes token via env", async () => {
-    mockExec.mockResolvedValue({ stdout: "{}", stderr: "", exitCode: 0 });
-    const adapter = createOpenClawAdapter({ token: "my-secret-token" });
-
-    await adapter.spawn({ task: "test" }, mockCtx());
-
-    const opts = mockExec.mock.calls[0][2];
-    expect(opts?.env?.OPENCLAW_TOKEN).toBe("my-secret-token");
-  });
-
   it("includes spawn tool parameters in message", async () => {
     mockExec.mockResolvedValue({ stdout: "{}", stderr: "", exitCode: 0 });
     const adapter = createOpenClawAdapter();

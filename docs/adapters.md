@@ -34,20 +34,20 @@ When a `spawn` step executes, the adapter is resolved in this order:
 
 ## OpenClaw Adapter
 
-The default adapter. Uses OpenClaw's `sessions_spawn` API to create child agent sessions.
+The default adapter. Invokes OpenClaw's `sessions_spawn` tool via the CLI to create child agent sessions.
 
 ### Setup
 
 ```bash
-# Option A: Gateway HTTP API (recommended for production)
-export OPENCLAW_URL=http://localhost:3000
-export OPENCLAW_TOKEN=your-api-token
-
-# Option B: CLI mode (auto-detected if no URL is set)
 # Requires: openclaw CLI installed and authenticated
 brew install openclaw   # or your preferred install method
 openclaw config         # authenticate
+
+# Optional: pass auth token to the CLI subprocess
+export OPENCLAW_TOKEN=your-api-token
 ```
+
+Squid runs `openclaw agent --agent <id> --message "..."` as a subprocess. The CLI handles gateway communication internally — Squid never makes HTTP calls to OpenClaw directly.
 
 ### YAML usage
 
@@ -84,26 +84,17 @@ These options are only available with the `openclaw` adapter:
 | `sandbox` | `inherit` parent sandbox or `require` one |
 | `attachments` | Attach files to the spawned session |
 
-### Environment variables
+### Authentication
 
-| Variable | Description |
-|----------|-------------|
-| `OPENCLAW_URL` | Gateway HTTP URL (e.g., `http://localhost:3000`) |
-| `OPENCLAW_TOKEN` | Bearer token for API authentication |
-| `CLAWD_URL` | Fallback for `OPENCLAW_URL` (legacy) |
-| `CLAWD_TOKEN` | Fallback for `OPENCLAW_TOKEN` (legacy) |
+The `openclaw` CLI uses credentials stored by `openclaw config` (in `~/.openclaw/config.json` under `gateway.auth.token`). No environment variables are needed — Squid does not pass any auth tokens to the subprocess.
 
 ### How it works under the hood
 
-**HTTP mode** (when `OPENCLAW_URL` is set):
-1. POST to `${OPENCLAW_URL}/api/sessions/spawn` with the spawn config
-2. Poll `${OPENCLAW_URL}/api/sessions/${childSessionKey}/status` until completed/failed
-3. Return the agent's output
-
-**CLI mode** (when no URL is set but `openclaw` binary exists):
-1. Run `openclaw agent --inline --message "task"` as a subprocess
-2. Capture stdout as the output
-3. Return synchronously (no polling needed)
+1. Builds a `sessions_spawn` instruction from the spawn config (task, runtime, mode, etc.)
+2. Runs `openclaw agent --agent <agentId> --json --timeout <N> --message "instruction"` as a subprocess
+3. The `openclaw` CLI handles gateway communication internally (HTTP, auth, polling)
+4. Captures stdout and parses JSON output (supports raw JSON, markdown-fenced JSON, and embedded JSON in prose)
+5. Extracts session key from output if present
 
 ---
 
@@ -164,7 +155,7 @@ steps:
 | Working directory | Yes — `cwd:` |
 | Timeout | Yes — subprocess timeout |
 | Attachments | Not yet — Claude Code reads files from `cwd` instead |
-| Agent ID | Not applicable — Claude Code is a single agent |
+| Agent ID | Yes — `agentId:` passed as `--agent <name>` (agents defined in `.claude/agents/`) |
 | Runtime/mode/sandbox | Not applicable — OpenClaw-specific |
 
 ### Example: Full pipeline with Claude Code
@@ -293,7 +284,7 @@ steps:
     spawn:
       agent: openclaw               # override
       task: "Review the implementation"
-      agentId: code-reviewer        # OpenClaw-specific: use a configured agent
+      agentId: code-reviewer        # target a named agent (works with both openclaw and claude-code)
       thinking: high
 
   # Step 4: Back to Claude Code for docs
@@ -466,13 +457,12 @@ The test mode intercepts at the hook level, **before** adapter resolution. This 
 
 | Feature | OpenClaw | Claude Code | OpenCode | Custom |
 |---------|----------|-------------|----------|--------|
-| **Invocation** | HTTP API or CLI | CLI subprocess | CLI subprocess | Your code |
-| **Async polling** | Yes (HTTP) | No (sync) | No (sync) | Your choice |
-| **Agent ID** | Yes (`agentId`) | No | No | Your choice |
-| **Model override** | Yes | Yes | Yes | Your choice |
-| **Thinking level** | Yes | No | No | Your choice |
+| **Invocation** | CLI subprocess | CLI subprocess | CLI subprocess | Your code |
+| **Agent ID** | Yes (`--agent`) | Yes (`--agent`) | No | Your choice |
+| **Model override** | Via agent config | Yes (`--model`) | Yes (`--model`) | Your choice |
+| **Thinking level** | Yes (`--thinking`) | No | No | Your choice |
 | **Attachments** | Yes | No | No | Your choice |
 | **Sessions** | Yes (persistent) | No | No | Your choice |
 | **Sandbox** | Yes | No | No | Your choice |
-| **Install** | openclaw CLI | claude CLI | opencode CLI | N/A |
-| **Auth** | URL + token | Claude auth | OpenCode auth | Your choice |
+| **Install** | `openclaw` CLI | `claude` CLI | `opencode` CLI | N/A |
+| **Auth** | `openclaw config` | Claude Code auth | OpenCode auth | Your choice |

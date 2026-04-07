@@ -2,7 +2,8 @@
  * Claude Code Agent Adapter
  *
  * Spawns sub-agents via Claude Code CLI (`claude`).
- * Each spawn step becomes a `claude -p "task" --output-format json` invocation.
+ * Each spawn step becomes a `claude [-p "task" | --agent <name> -p "task"] --output-format json` invocation.
+ * Supports agentId for targeting Claude Code sub-agents defined in .claude/agents/.
  *
  * Uses async execution (non-blocking) to support parallel spawns.
  *
@@ -11,6 +12,7 @@
  */
 
 import { execAsync, shellEscape } from "../async-exec.js";
+import { parseAgentOutput } from "../json-extract.js";
 import type { AgentAdapter, SpawnConfig, SpawnResult, StepResult, PipelineContext } from "../types.js";
 
 export function createClaudeCodeAdapter(config: {
@@ -24,7 +26,14 @@ export function createClaudeCodeAdapter(config: {
     name: "claude-code",
 
     async spawn(spawnConfig: SpawnConfig, ctx: PipelineContext): Promise<SpawnResult> {
-      const args: string[] = ["-p", spawnConfig.task, "--output-format", "json"];
+      const args: string[] = [];
+
+      // Agent targeting: claude --agent <name> -p "task"
+      if (spawnConfig.agentId) {
+        args.push("--agent", spawnConfig.agentId);
+      }
+
+      args.push("-p", spawnConfig.task, "--output-format", "json");
 
       // Model override
       const model = spawnConfig.model ?? defaultModel;
@@ -48,21 +57,14 @@ export function createClaudeCodeAdapter(config: {
           // Extract the inner result if present
           if (parsed && typeof parsed === "object" && "result" in parsed && parsed.type === "result") {
             const inner = (parsed as Record<string, unknown>).result;
-            // Try to parse the inner result as JSON too (it's often a JSON string)
-            if (typeof inner === "string") {
-              try {
-                output = JSON.parse(inner);
-              } catch {
-                output = inner;
-              }
-            } else {
-              output = inner;
-            }
+            // Parse inner result — may be JSON string, markdown-fenced JSON, or plain text
+            output = typeof inner === "string" ? parseAgentOutput(inner) : inner;
           } else {
             output = parsed;
           }
         } catch {
-          // Not JSON — keep as string
+          // Not raw JSON — try extracting from markdown fences or embedded JSON
+          output = parseAgentOutput(result.stdout);
         }
 
         return {

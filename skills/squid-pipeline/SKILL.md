@@ -75,8 +75,12 @@ Prevents runaway execution. No exceptions.
 ### R6: Downstream steps MUST guard on upstream success
 If step B depends on step A's output, step B MUST have a `when:` condition that checks the relevant output field. Especially critical after `restart:` loops — downstream steps must check the final approval/success state, not just whether the step ran.
 
-### R7: `transform` steps use JSON templates with `$ref` interpolation only
-Transforms support: `$stepId.json`, `$stepId.json.field`, `"${args.key}"`, string interpolation. They do NOT support: ternary operators (`? :`), JavaScript expressions, function calls, or arithmetic. If you need conditional output, use a `branch` step instead.
+### R7: `transform` steps MUST use `${ref}` interpolation in JSON templates
+Inside JSON template strings, ALWAYS use `${stepId.json.field}` (curly braces), NEVER bare `$stepId.json.field`.
+- Correct: `{"score": ${reviewer.json.score}, "name": "${args.name}"}`
+- Wrong: `{"score": $reviewer.json.score, "name": "$args.name"}`
+- Bare `$ref` only works as a standalone expression (e.g., `transform: $step.json`) or in `when:` conditions.
+- Transforms do NOT support: ternary operators (`? :`), JavaScript expressions, function calls, or arithmetic. Use a `branch` step instead.
 
 ### R8: Every pipeline MUST have a `.test.yaml` covering at minimum
 1. **Happy path** — all gates approved, all steps succeed
@@ -134,17 +138,142 @@ steps:
 
 ## Spawn — Agent Adapters
 
-```yaml
-- id: analyze
-  type: spawn
-  spawn:
-    task: "Analyze code. Output JSON: { issues: [], score: number }"   # R3: always specify output format
-    agent: claude-code             # openclaw | claude-code | opencode | custom
-    model: claude-sonnet-4-6
-    timeout: 300                   # R3: always set timeout
+4 adapters available. Resolution order: `step.agent` → `pipeline.agent` → `SQUID_AGENT` env var → `openclaw` (default fallback).
+
+```bash
+# Set default adapter via env (overrides the openclaw fallback)
+export SQUID_AGENT=claude-code     # or: openclaw, opencode
 ```
 
-Set pipeline-level default: `agent: claude-code` at root. Override per step.
+The `agent:` field in YAML is **optional** — only needed to override the env/fallback default. Set it per-pipeline at root, or per-step in spawn config.
+
+### When to use which adapter
+
+| Adapter | Best for | Requires |
+|---------|----------|----------|
+| `claude-code` | Code tasks (implement, fix, refactor) — runs in a repo directory | `claude` CLI installed and authenticated |
+| `openclaw` | Non-code tasks (review, plan, research) — runs as OpenClaw sub-agents | OpenClaw gateway or CLI |
+| `openclaw` + `runtime: acp` | Code tasks via OpenClaw's Agent Control Plane (Claude Code through OpenClaw) | OpenClaw with ACP configured |
+| `opencode` | Code tasks via OpenCode CLI | `opencode` CLI installed |
+
+### Claude Code (standalone, no OpenClaw)
+
+```yaml
+agent: claude-code                 # set as pipeline default
+
+steps:
+  - id: implement
+    type: spawn
+    spawn:
+      task: "Implement feature X. Output JSON: {\"files_changed\": <n>}"
+      agentId: code-reviewer       # optional: target a Claude Code sub-agent (defined in .claude/agents/)
+      model: claude-sonnet-4-6     # optional (default: CLAUDE_MODEL env)
+      timeout: 300
+      cwd: /path/to/repo           # working directory for the agent
+```
+
+**Env:** `CLAUDE_MODEL` (optional default model)
+**How it works:** Runs `claude --agent <agentId> -p "task" --output-format json` as subprocess (omits `--agent` if no `agentId`).
+**Sub-agents:** Define agents in `.claude/agents/<name>.md` files. Use `agentId` to target them — each agent has its own system prompt, tool access, and permissions.
+
+### OpenClaw (sub-agents)
+
+```yaml
+agent: openclaw                    # set as pipeline default (also the fallback default)
+
+steps:
+  - id: review
+    type: spawn
+    spawn:
+      task: "Review code quality. Output JSON: {\"score\": <n>, \"issues\": [...]}"
+      agentId: code-reviewer       # target specific OpenClaw agent
+      thinking: high               # off | low | high
+      runtime: subagent            # subagent (in-process) | acp (external Claude Code)
+      timeout: 300
+      # NOTE: model is set per agent in OpenClaw config, not here.
+      # model: only has effect with runtime: acp (passed to Claude Code)
+```
+
+**Requires:** `openclaw` CLI installed and authenticated (`openclaw config`). Squid invokes `openclaw agent --agent <id> --message "..."` as a subprocess. The CLI uses its own stored credentials (`~/.openclaw/config.json`) — no env vars needed.
+**OpenClaw-only options:** `runtime`, `mode` (run|session), `sandbox` (inherit|require), `attachments`
+
+**When does `model:` apply?**
+- `runtime: subagent` — model is **ignored**. The OpenClaw agent uses whatever model is in its own config.
+- `runtime: acp` — model is **passed** to the ACP-spawned Claude Code instance.
+
+### OpenClaw + ACP (Claude Code through OpenClaw)
+
+Use `runtime: acp` to run Claude Code agents managed by OpenClaw's Agent Control Plane:
+
+```yaml
+- id: implement
+  type: spawn
+  spawn:
+    task: "Implement the feature. Output JSON: {\"implemented\": true}"
+    agent: openclaw
+    runtime: acp                   # routes to Claude Code via OpenClaw ACP
+    timeout: 600
+```
+
+### OpenCode (standalone, no OpenClaw)
+
+```yaml
+agent: opencode                    # set as pipeline default
+
+steps:
+  - id: fix
+    type: spawn
+    spawn:
+      task: "Fix the bug. Output JSON: {\"fixed\": true}"
+      model: gpt-4o               # optional
+      timeout: 300
+      cwd: /path/to/repo
+```
+
+**Env:** `OPENCODE_MODEL` (optional default model)
+**How it works:** Runs `opencode run --message "task"` as subprocess.
+
+### `agentId` — targeting named sub-agents
+
+`agentId` works across adapters to target a specific named agent:
+
+| Adapter | How `agentId` is used | Where agents are defined |
+|---------|----------------------|------------------------|
+| `claude-code` | Passed as `--agent <name>` to the CLI | `.claude/agents/<name>.md` files |
+| `openclaw` | Passed as `--agent <name>` to the CLI | OpenClaw agent config |
+| `opencode` | Not yet supported | — |
+
+```yaml
+- id: review
+  type: spawn
+  spawn:
+    task: "Review the code. Output JSON: {\"score\": <n>}"
+    agentId: code-reviewer     # targets the same agent name regardless of adapter
+    timeout: 120
+```
+
+### Mixing adapters in one pipeline
+
+```yaml
+agent: claude-code                 # default for most steps
+
+steps:
+  - id: implement
+    type: spawn
+    spawn:
+      task: "Write the code"       # uses claude-code (pipeline default)
+      timeout: 300
+
+  - id: review
+    type: spawn
+    spawn:
+      task: "Review the code"
+      agent: openclaw              # override: use OpenClaw for this step
+      agentId: reviewer-agent
+      timeout: 120
+```
+
+**Full adapter reference:** [docs/adapters.md](https://raw.githubusercontent.com/dominno/squid/refs/heads/main/docs/adapters.md) — custom adapter interface, feature comparison table, and detailed examples.
 
 ## Gate — Structured Input + Identity
 
@@ -352,3 +481,17 @@ Before delivering any pipeline to the user, verify ALL items. If any item fails,
 - [ ] `.test.yaml` covers happy path, rejection, failure, and restart exhaustion **(R8)**
 - [ ] `squid validate` passes on all pipeline files
 - [ ] Scripts have no unused imports or dead code **(R10)**
+
+## Documentation Links
+
+Full docs on GitHub (for topics not covered in this skill or its references):
+
+| Doc | URL |
+|-----|-----|
+| Getting Started | https://raw.githubusercontent.com/dominno/squid/refs/heads/main/docs/getting-started.md |
+| Step Types | https://raw.githubusercontent.com/dominno/squid/refs/heads/main/docs/step-types.md |
+| Agent Adapters | https://raw.githubusercontent.com/dominno/squid/refs/heads/main/docs/adapters.md |
+| Workflow Patterns | https://raw.githubusercontent.com/dominno/squid/refs/heads/main/docs/workflow-patterns.md |
+| Testing Guide | https://raw.githubusercontent.com/dominno/squid/refs/heads/main/docs/testing.md |
+| Lobster Migration | https://raw.githubusercontent.com/dominno/squid/refs/heads/main/docs/migration.md |
+| Use Case Examples | https://github.com/dominno/squid-workflows |

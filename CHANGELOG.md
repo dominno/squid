@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.1.1
+
+### Robust JSON Extraction
+- New `json-extract.ts` module: `parseAgentOutput()` extracts JSON from markdown fences (`` ```json ... ``` ``), embedded objects in prose, and raw JSON
+- All 3 adapters (OpenClaw, Claude Code, OpenCode) now use `parseAgentOutput()` instead of fragile `JSON.parse(stdout)`
+- Fixes the production issue where OpenClaw agents return JSON wrapped in markdown or prose instead of raw JSON
+- 16 unit tests covering all extraction patterns
+
+### Claude Code Sub-Agent Support
+- `agentId` now works with the `claude-code` adapter — passed as `--agent <name>` to the CLI
+- Targets Claude Code sub-agents defined in `.claude/agents/<name>.md`
+- `agentId` is no longer OpenClaw-only — works across `claude-code` and `openclaw` adapters
+
+### Parser Validation
+- Warning when `model:` is set with `runtime: subagent` — model is ignored for OpenClaw sub-agents (model is configured per agent in OpenClaw, not in the pipeline)
+
+### OpenClaw Adapter Cleanup
+- Removed dead `OPENCLAW_TOKEN` / `OPENCLAW_GATEWAY_TOKEN` / `CLAWD_TOKEN` env var handling — the `openclaw` CLI never reads these; it authenticates via `openclaw config` stored credentials
+- Removed `token` config field from `OpenClawConfig` interface
+
+### Documentation
+- Updated `docs/adapters.md`: fixed `agentId` support table (now "Yes" for Claude Code), corrected OpenClaw auth to CLI-only (no HTTP mode), updated comparison table
+- Updated SKILL.md with full adapter guide: when to use which adapter, `SQUID_AGENT` env var, `agentId` cross-adapter table, `model:` behavior per runtime
+- Added raw GitHub URLs for all doc files in SKILL.md Documentation Links section
+- Clarified `${ref}` interpolation in transforms (R7) vs bare `$ref` in `when:` conditions
+
 ## 0.1.0 — Initial Release
 
 ### Core Pipeline Engine

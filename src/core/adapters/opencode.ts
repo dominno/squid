@@ -11,6 +11,7 @@
  */
 
 import { execAsync, shellEscape } from "../async-exec.js";
+import { parseAgentOutput } from "../json-extract.js";
 import type { AgentAdapter, SpawnConfig, SpawnResult, StepResult, PipelineContext } from "../types.js";
 
 export function createOpenCodeAdapter(config: {
@@ -40,12 +41,7 @@ export function createOpenCodeAdapter(config: {
           timeoutMs: (spawnConfig.timeout ?? 600) * 1000,
         });
 
-        let output: unknown = result.stdout.trim();
-        try {
-          output = JSON.parse(result.stdout.trim());
-        } catch {
-          // Not JSON — keep as string
-        }
+        const output = parseAgentOutput(result.stdout);
 
         return {
           status: "accepted",
