@@ -580,6 +580,64 @@ describe("runPipeline", () => {
       expect(output.artifact).toBe("app-qa.tar.gz");
     });
 
+    it("resolves ${...} interpolation args to sub-pipeline (not bare $ref)", async () => {
+      const { resolve } = await import("node:path");
+      const subPath = resolve(
+        import.meta.dirname ?? ".",
+        "../skills/squid-pipeline/examples/sub-build.yaml"
+      );
+
+      const pipeline: Pipeline = {
+        name: "test",
+        args: { env: { default: "staging" } },
+        steps: [
+          {
+            id: "sub",
+            type: "pipeline",
+            // Use ${args.env} interpolation syntax instead of $args.env bare ref
+            pipeline: { file: subPath, args: { target: "${args.env}" } },
+          },
+        ],
+      };
+
+      const result = await runPipeline(pipeline, { args: { env: "prod" } });
+      expect(result.status).toBe("completed");
+      const output = result.results.sub.output as Record<string, unknown>;
+      expect(output.target).toBe("prod");
+      expect(output.artifact).toBe("app-prod.tar.gz");
+    });
+
+    it("resolves ${step.json.field} interpolation args to sub-pipeline", async () => {
+      const { resolve } = await import("node:path");
+      const subPath = resolve(
+        import.meta.dirname ?? ".",
+        "../skills/squid-pipeline/examples/sub-build.yaml"
+      );
+
+      const pipeline: Pipeline = {
+        name: "test",
+        steps: [
+          {
+            id: "setup",
+            type: "run",
+            run: 'echo \'{"env": "canary"}\'',
+          },
+          {
+            id: "sub",
+            type: "pipeline",
+            // ${setup.json.env} starts with $ but contains ${...} so must use interpolation
+            pipeline: { file: subPath, args: { target: "${setup.json.env}" } },
+          },
+        ],
+      };
+
+      const result = await runPipeline(pipeline);
+      expect(result.status).toBe("completed");
+      const output = result.results.sub.output as Record<string, unknown>;
+      expect(output.target).toBe("canary");
+      expect(output.artifact).toBe("app-canary.tar.gz");
+    });
+
     it("dry-run does not execute sub-pipeline", async () => {
       const pipeline: Pipeline = {
         name: "test",

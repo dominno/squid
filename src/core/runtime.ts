@@ -885,10 +885,10 @@ async function executePipelineRef(
   const subArgs: Record<string, unknown> = {};
   if (config.args) {
     for (const [key, value] of Object.entries(config.args)) {
-      if (typeof value === "string" && value.startsWith("$")) {
-        subArgs[key] = resolveRef(value, ctx);
-      } else if (typeof value === "string" && value.includes("${")) {
+      if (typeof value === "string" && value.includes("${")) {
         subArgs[key] = interpolate(value, ctx);
+      } else if (typeof value === "string" && value.startsWith("$")) {
+        subArgs[key] = resolveRef(value, ctx);
       } else {
         subArgs[key] = value;
       }
