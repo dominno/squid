@@ -239,4 +239,34 @@ describe("evaluateCondition", () => {
     addResult(ctx, "fetch", { output: { items: [1] } });
     expect(evaluateCondition("$fetch.json.items", ctx)).toBe(true);
   });
+
+  it("evaluates comparison with ${...} interpolation on the right side", () => {
+    const ctx = createContext({ args: { threshold: "75" } });
+    addResult(ctx, "review", { output: { score: 60 } });
+    expect(evaluateCondition("$review.json.score < ${args.threshold}", ctx)).toBe(true);
+  });
+
+  it("evaluates comparison with ${...} interpolation when score meets threshold", () => {
+    const ctx = createContext({ args: { threshold: "75" } });
+    addResult(ctx, "review", { output: { score: 90 } });
+    expect(evaluateCondition("$review.json.score < ${args.threshold}", ctx)).toBe(false);
+  });
+
+  it("evaluates >= comparison with ${...} on the right", () => {
+    const ctx = createContext({ args: { min: "10" } });
+    addResult(ctx, "step", { output: { count: 15 } });
+    expect(evaluateCondition("$step.json.count >= ${args.min}", ctx)).toBe(true);
+  });
+
+  it("evaluates comparison with ${...} on the left side", () => {
+    const ctx = createContext({ args: { limit: "100" } });
+    addResult(ctx, "step", { output: { count: 50 } });
+    expect(evaluateCondition("${args.limit} > $step.json.count", ctx)).toBe(true);
+  });
+
+  it("evaluates comparison with ${...} on both sides", () => {
+    const ctx = createContext({ args: { a: "10", b: "20" } });
+    expect(evaluateCondition("${args.a} < ${args.b}", ctx)).toBe(true);
+    expect(evaluateCondition("${args.b} < ${args.a}", ctx)).toBe(false);
+  });
 });

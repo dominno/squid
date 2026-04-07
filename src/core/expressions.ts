@@ -160,12 +160,17 @@ export function evaluateCondition(expr: string, ctx: PipelineContext): boolean {
     /^(.+?)\s*(==|!=|>=|<=|>|<)\s*(.+)$/
   );
   if (compMatch) {
-    const left = resolveRef(compMatch[1].trim(), ctx);
+    const leftRaw = compMatch[1].trim();
+    const left = leftRaw.includes("${")
+      ? parseValue(interpolate(leftRaw, ctx))
+      : resolveRef(leftRaw, ctx);
     const op = compMatch[2];
     const rightRaw = compMatch[3].trim();
-    const right = rightRaw.startsWith("$")
-      ? resolveRef(rightRaw, ctx)
-      : parseValue(rightRaw);
+    const right = rightRaw.includes("${")
+      ? parseValue(interpolate(rightRaw, ctx))
+      : rightRaw.startsWith("$")
+        ? resolveRef(rightRaw, ctx)
+        : parseValue(rightRaw);
     return compare(left, op, right);
   }
 
