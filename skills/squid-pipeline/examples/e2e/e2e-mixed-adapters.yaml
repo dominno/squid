@@ -1,0 +1,39 @@
+# ─── E2E Test: Mixed Adapters ──────────────────────────────────────────
+#
+# Claude Code writes code, OpenClaw reviews it.
+# Tests: per-step adapter override, different agents in same pipeline.
+#
+# Requires: both `claude` and `openclaw` CLIs installed.
+
+name: e2e-mixed-adapters
+description: E2E test for mixing Claude Code and OpenClaw adapters
+agent: claude-code
+onError: fail
+
+steps:
+  - id: write_code
+    type: spawn
+    description: Claude Code writes a function
+    spawn:
+      task: |
+        Write a Python function called "fizzbuzz" that takes n and returns a list of fizzbuzz results.
+        Output ONLY this JSON: {"code": "def fizzbuzz(n): ...", "language": "python"}
+      timeout: 60
+
+  - id: review_code
+    type: spawn
+    description: OpenClaw agent reviews the code
+    spawn:
+      agent: openclaw
+      task: |
+        Review this Python code for correctness and style:
+        ${write_code.json.code}
+        Score 0-100.
+        Output ONLY this JSON: {"score": <number>, "feedback": "one sentence"}
+      timeout: 120
+
+  - id: result
+    type: transform
+    description: Combined output
+    transform: >
+      {"code_ready": true, "review_score": ${review_code.json.score}}

@@ -91,7 +91,46 @@ The pipeline will:
 npx squid resume hello.yaml --token <token> --approve yes
 ```
 
-### 6. Visualize
+### 6. Verbose Mode
+
+Use `-v` to see step-by-step execution logs with timestamps, step types, outputs, and gate activity:
+
+```bash
+squid run hello.yaml -v
+```
+
+Output:
+
+```
+15:10:46.532 [pipeline] ▶ hello mode=run args={"env":"staging"}
+15:10:46.535 [run]      → [build] starting...
+15:10:46.850 [run]      ✓ [build] completed (315ms)
+15:10:46.850 [output]     {"image":"app:latest","tag":"v2"}
+15:10:46.851 [run]      → [test] starting...
+15:10:47.200 [run]      ✓ [test] completed (349ms)
+15:10:47.201 [gate]     → [approve] starting...
+15:10:47.201 [gate]     ⏸ [approve] waiting for approval: Deploy to staging?
+15:10:47.201 [gate]       Short ID: a1b2c3d4
+```
+
+Log icons:
+- `▶` pipeline start
+- `→` step starting
+- `✓` completed
+- `✗` error
+- `⊘` skipped (condition false)
+- `↻` retry
+- `⏸` gate waiting
+- `⚡` agent spawning
+
+Combine with other flags:
+
+```bash
+squid run pipeline.yaml -v --dry-run    # see what would run
+squid run pipeline.yaml -v --test       # auto-approve gates
+```
+
+### 7. Visualize
 
 ```bash
 npx squid viz hello.yaml

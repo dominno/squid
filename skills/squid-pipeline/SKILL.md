@@ -463,6 +463,33 @@ squid viz <file>
 squid init --template basic|agent|parallel|full --name <name>
 ```
 
+### Verbose mode (`-v`)
+
+Add `-v` to any `squid run` command for step-by-step execution logs:
+
+```bash
+squid run pipeline.yaml -v                     # real execution with logs
+squid run pipeline.yaml -v --dry-run            # preview without executing
+squid run pipeline.yaml -v --test               # auto-approve gates
+```
+
+Output shows timestamps, step types, outputs, gate activity, retries, and errors:
+
+```
+15:10:46.532 [pipeline] ▶ my-pipeline mode=run args={"topic":"test"}
+15:10:46.535 [spawn]    → [research] starting...
+15:10:52.143 [spawn]    ✓ [research] completed (5608ms)
+15:10:52.143 [output]     {"facts":["fact1","fact2"]}
+15:10:52.144 [gate]     ⏸ [approve] waiting for approval: Review results
+15:10:55.000 [gate]     ✓ [approve] approved
+15:10:55.001 [run]      → [deploy] starting...
+15:10:55.500 [run]      ✓ [deploy] completed (499ms)
+15:10:55.501 [step]     ⊘ [cleanup] skipped (condition_false)
+15:10:55.502 [pipeline] ✓ my-pipeline completed (4970ms)
+```
+
+Icons: `▶` start, `→` running, `✓` done, `✗` error, `⊘` skipped, `↻` retry, `⏸` gate waiting, `⚡` spawning.
+
 ## Pre-Delivery Checklist
 
 Before delivering any pipeline to the user, verify ALL items. If any item fails, fix before delivering.

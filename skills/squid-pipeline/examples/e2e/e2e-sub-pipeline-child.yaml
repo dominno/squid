@@ -1,0 +1,33 @@
+# ─── E2E Test: Sub-Pipeline Child ──────────────────────────────────────
+#
+# Standalone child pipeline called by e2e-sub-pipeline.yaml.
+# Takes a topic, spawns an agent, returns structured result.
+
+name: e2e-sub-pipeline-child
+description: Child pipeline for sub-pipeline composition test
+agent: claude-code
+onError: fail
+
+args:
+  topic:
+    required: true
+    description: Topic to process
+  depth:
+    default: "brief"
+    description: How deep to go (brief or detailed)
+
+steps:
+  - id: process
+    type: spawn
+    description: Process the topic
+    spawn:
+      task: |
+        Summarize this topic in one sentence (${args.depth}):
+        "${args.topic}"
+        Output ONLY this JSON: {"topic": "${args.topic}", "summary": "one sentence", "depth": "${args.depth}"}
+      timeout: 60
+
+  - id: output
+    type: transform
+    description: Return result
+    transform: $process.json

@@ -1,0 +1,53 @@
+# ─── E2E Test: Error Recovery ──────────────────────────────────────────
+#
+# First agent attempts a task. If it fails or returns low confidence,
+# a branch routes to a fallback agent with a different strategy.
+#
+# Tests: branch on $step.status, error handling, fallback routing.
+
+name: e2e-error-recovery
+description: E2E test for error handling with branch-based fallback
+agent: claude-code
+onError: continue
+
+steps:
+  - id: attempt
+    type: spawn
+    description: First attempt at the task
+    spawn:
+      task: |
+        Attempt to explain "quantum entanglement" in exactly 10 words.
+        Count carefully. If you can do it in exactly 10, return confident.
+        Output ONLY this JSON: {"explanation": "your 10 words", "word_count": <number>, "confident": <true if exactly 10>}
+      timeout: 60
+
+  - id: check
+    type: branch
+    description: Route based on confidence
+    branch:
+      conditions:
+        - when: $attempt.json.confident
+          steps:
+            - id: success
+              type: transform
+              description: First attempt succeeded
+              transform: >
+                {"status": "first_attempt", "explanation": "${attempt.json.explanation}"}
+      default:
+        - id: fallback
+          type: spawn
+          description: Fallback agent with relaxed constraint
+          spawn:
+            task: |
+              Explain "quantum entanglement" in a simple one-sentence summary (any length).
+              Output ONLY this JSON: {"explanation": "your sentence", "status": "fallback"}
+            timeout: 60
+        - id: fallback_result
+          type: transform
+          description: Fallback result
+          transform: $fallback.json
+
+  - id: final
+    type: transform
+    description: Final output
+    transform: $check.json

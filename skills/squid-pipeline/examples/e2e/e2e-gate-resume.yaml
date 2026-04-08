@@ -1,0 +1,44 @@
+# ─── E2E Test: Gate + Resume ───────────────────────────────────────────
+#
+# Pipeline runs a step, halts at a gate, then must be resumed.
+# In test mode, gates auto-approve. In real mode, tests the halt/resume flow.
+#
+# Tests: gate halting, resume token generation, post-gate conditional execution.
+
+name: e2e-gate-resume
+description: E2E test for gate halting and resume flow
+agent: claude-code
+onError: fail
+
+steps:
+  - id: analyze
+    type: spawn
+    description: Analyze something before gate
+    spawn:
+      task: |
+        Analyze the concept of "automated testing" briefly.
+        Output ONLY this JSON: {"analysis": "one sentence", "confidence": 85}
+      timeout: 60
+
+  - id: approval
+    type: gate
+    description: Human reviews analysis before proceeding
+    gate:
+      prompt: "Review the analysis. Approve to proceed."
+      preview: $analyze.json
+
+  - id: execute
+    type: spawn
+    description: Execute based on approved analysis
+    when: $approval.approved
+    spawn:
+      task: |
+        The analysis was approved: ${analyze.json.analysis}
+        Write a follow-up action item.
+        Output ONLY this JSON: {"action": "one sentence", "approved": true}
+      timeout: 60
+
+  - id: result
+    type: transform
+    description: Final output
+    transform: $execute.json

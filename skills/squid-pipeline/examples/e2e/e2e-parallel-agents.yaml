@@ -1,0 +1,60 @@
+# ─── E2E Test: Parallel Agents ─────────────────────────────────────────
+#
+# Two agents work in parallel: one researches, one outlines.
+# Results are merged and a third agent summarizes both.
+#
+# Tests: parallel branches, merge: object, cross-branch data flow.
+
+name: e2e-parallel-agents
+description: E2E test for parallel agent branches with merge
+agent: claude-code
+onError: fail
+
+args:
+  topic:
+    default: "benefits of code review"
+    description: Topic for parallel research
+
+steps:
+  - id: parallel_work
+    type: parallel
+    description: Two agents work in parallel
+    parallel:
+      maxConcurrent: 2
+      merge: object
+      branches:
+        research:
+          - id: researcher
+            type: spawn
+            description: Research agent gathers facts
+            spawn:
+              task: |
+                Research the topic: "${args.topic}"
+                Find 3 key facts.
+                Output ONLY this JSON: {"facts": ["fact1", "fact2", "fact3"]}
+              timeout: 60
+        outline:
+          - id: outliner
+            type: spawn
+            description: Outline agent creates structure
+            spawn:
+              task: |
+                Create a 3-point outline for: "${args.topic}"
+                Output ONLY this JSON: {"outline": ["point1", "point2", "point3"]}
+              timeout: 60
+
+  - id: summarize
+    type: spawn
+    description: Summarizer combines parallel results
+    spawn:
+      task: |
+        Combine these parallel results into a summary:
+        Research: ${parallel_work.json}
+        Write a one-sentence summary.
+        Output ONLY this JSON: {"summary": "one sentence here"}
+      timeout: 60
+
+  - id: result
+    type: transform
+    description: Final output
+    transform: $summarize.json

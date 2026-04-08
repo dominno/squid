@@ -1,0 +1,42 @@
+# ─── E2E Test: Loop Over Items ─────────────────────────────────────────
+#
+# A run step produces a list, then a loop iterates each item through an agent.
+# Tests: loop with real spawn, $item/$index access, collect results.
+
+name: e2e-loop-items
+description: E2E test for loop iterating items through a real agent
+agent: claude-code
+onError: fail
+
+steps:
+  - id: generate_items
+    type: run
+    description: Generate a list of items to process
+    run: |
+      echo '{"items": [{"name": "apple", "type": "fruit"}, {"name": "carrot", "type": "vegetable"}, {"name": "salmon", "type": "fish"}]}'
+    timeout: 10
+
+  - id: process_items
+    type: loop
+    description: Process each item through an agent
+    loop:
+      over: $generate_items.json.items
+      as: food
+      maxConcurrent: 2
+      maxIterations: 5
+      collect: results
+      steps:
+        - id: classify
+          type: spawn
+          description: Classify the food item
+          spawn:
+            task: |
+              Classify this food: name="${item.name}", type="${item.type}"
+              Is it healthy? Rate 1-10.
+              Output ONLY this JSON: {"name": "${item.name}", "healthy_score": <number 1-10>}
+            timeout: 60
+
+  - id: summary
+    type: transform
+    description: Collect results
+    transform: $process_items.json

@@ -1,0 +1,86 @@
+# ─── E2E Test: Code Review Loop ────────────────────────────────────────
+#
+# Coder writes code, reviewer scores it. If score < threshold, loops back
+# to coder with feedback. On approval, outputs success. On exhaustion, fails.
+#
+# Tests: restart directive, cross-step data flow, branch routing.
+#
+# Requires: claude CLI installed and authenticated
+# Run: SQUID_E2E=1 npx vitest run test/e2e.test.ts -t "code review loop"
+
+name: e2e-code-review-loop
+description: E2E test for iterative code review with restart loop
+agent: claude-code
+onError: fail
+
+args:
+  task:
+    default: "Write a Python function that checks if a string is a palindrome"
+    description: Coding task for the coder agent
+  threshold:
+    default: "75"
+    description: Minimum review score to accept
+
+steps:
+  # ─── Coder writes or refines code ───
+  - id: coder
+    type: spawn
+    description: Coder agent writes/refines the implementation
+    spawn:
+      task: |
+        You are a coder. Implement this task:
+        ${args.task}
+
+        Previous reviewer feedback (if any):
+        ${reviewer.json.feedback}
+
+        Write clean, working code.
+        Output ONLY this exact JSON format: {"code": "<your code here>", "language": "python"}
+      timeout: 60
+
+  # ─── Reviewer scores the code ───
+  - id: reviewer
+    type: spawn
+    description: Reviewer agent evaluates the code quality
+    spawn:
+      task: |
+        You are a strict code reviewer. Review this implementation:
+
+        Task: ${args.task}
+        Code: ${coder.json.code}
+
+        Score 0-100 on correctness, readability, edge cases.
+        IMPORTANT: Output ONLY this exact JSON format:
+        {"score": <number>, "approved": <true if score >= 75 else false>, "feedback": "<one sentence>"}
+      timeout: 60
+
+  # ─── Decision: loop back or proceed ───
+  - id: decide
+    type: transform
+    description: Check if review score meets threshold
+    transform: >
+      {"score": ${reviewer.json.score}, "approved": ${reviewer.json.approved}}
+    restart:
+      step: coder
+      when: $reviewer.json.score < ${args.threshold}
+      maxRestarts: 2
+
+  # ─── Route based on approval ───
+  - id: result
+    type: branch
+    description: Route to success or failure based on final review
+    branch:
+      conditions:
+        - when: $reviewer.json.approved
+          steps:
+            - id: success
+              type: transform
+              description: Code approved
+              transform: >
+                {"status": "approved", "score": ${reviewer.json.score}, "code": "${coder.json.language}"}
+      default:
+        - id: failed
+          type: transform
+          description: Code rejected after max retries
+          transform: >
+            {"status": "rejected", "score": ${reviewer.json.score}, "feedback": "${reviewer.json.feedback}"}

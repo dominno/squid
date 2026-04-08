@@ -1,0 +1,16 @@
+pipeline: ./e2e-code-review-loop.yaml
+
+tests:
+  # --- Sandbox: pipeline structure validates and runs ---
+  - name: "code review loop pipeline structure is valid"
+    mode: sandbox
+    args:
+      task: "Write a palindrome checker"
+      threshold: "75"
+    assert:
+      status: completed
+      steps:
+        coder: completed
+        reviewer: completed
+        decide: completed
+        result: completed

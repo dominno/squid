@@ -1,0 +1,38 @@
+# ─── E2E Test: Sub-Pipeline Composition ────────────────────────────────
+#
+# Parent pipeline calls a child pipeline, passes args, receives output.
+# Tests: pipeline step type, arg resolution, output propagation.
+
+name: e2e-sub-pipeline
+description: E2E test for sub-pipeline composition with arg passing
+agent: claude-code
+onError: fail
+
+args:
+  topic:
+    default: "why testing matters"
+    description: Topic to pass to child pipeline
+
+steps:
+  - id: prep
+    type: spawn
+    description: Generate topic details
+    spawn:
+      task: |
+        Given the topic "${args.topic}", suggest a more specific angle.
+        Output ONLY this JSON: {"refined_topic": "more specific version", "depth": "detailed"}
+      timeout: 60
+
+  - id: child
+    type: pipeline
+    description: Call child pipeline with refined topic
+    pipeline:
+      file: ./e2e-sub-pipeline-child.yaml
+      args:
+        topic: "${prep.json.refined_topic}"
+        depth: "${prep.json.depth}"
+
+  - id: result
+    type: transform
+    description: Combine parent and child results
+    transform: $child.json

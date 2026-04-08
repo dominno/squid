@@ -19,6 +19,88 @@ import { decodeResumeToken, encodeResumeToken } from "../core/resume.js";
 import { buildGraph, toMermaid } from "../core/graph.js";
 import { runTestFile, type TestSuiteResult } from "../testing/yaml-runner.js";
 import { setupBuiltinAdapters } from "../core/adapters/setup.js";
+import { createEventEmitter } from "../core/events.js";
+import type { PipelineEvent, PipelineEventEmitter } from "../core/types.js";
+
+// ─── Verbose Event Logger ────────────────────────────────────────────
+
+function createVerboseEmitter(): PipelineEventEmitter {
+  const emitter = createEventEmitter();
+  const startTimes = new Map<string, number>();
+
+  emitter.on("pipeline:start", (e) => {
+    const args = e.data?.args ? ` args=${JSON.stringify(e.data.args)}` : "";
+    const mode = e.data?.mode ? ` mode=${e.data.mode}` : "";
+    log("pipeline", `▶ ${e.pipelineId}${mode}${args}`);
+  });
+
+  emitter.on("pipeline:complete", (e) => {
+    const d = e.data?.duration ? ` (${e.data.duration}ms)` : "";
+    log("pipeline", `✓ ${e.pipelineId} completed${d}`);
+  });
+
+  emitter.on("pipeline:error", (e) => {
+    log("pipeline", `✗ ${e.pipelineId} failed: ${e.data?.error ?? "unknown"}`);
+  });
+
+  emitter.on("step:start", (e) => {
+    if (e.stepId) startTimes.set(e.stepId, Date.now());
+    log(e.stepType ?? "step", `→ [${e.stepId}] starting...`);
+  });
+
+  emitter.on("step:complete", (e) => {
+    const elapsed = e.stepId && startTimes.has(e.stepId)
+      ? `${Date.now() - startTimes.get(e.stepId)!}ms`
+      : `${e.duration ?? 0}ms`;
+    log(e.stepType ?? "step", `✓ [${e.stepId}] completed (${elapsed})`);
+    if (e.data?.output != null) {
+      const out = JSON.stringify(e.data.output);
+      log("output", `  ${out.length > 200 ? out.slice(0, 200) + "..." : out}`);
+    }
+  });
+
+  emitter.on("step:error", (e) => {
+    log(e.stepType ?? "step", `✗ [${e.stepId}] error: ${e.data?.error ?? "unknown"}`);
+  });
+
+  emitter.on("step:skip", (e) => {
+    log(e.stepType ?? "step", `⊘ [${e.stepId}] skipped (${e.data?.reason ?? "condition_false"})`);
+  });
+
+  emitter.on("step:retry", (e) => {
+    log(e.stepType ?? "step", `↻ [${e.stepId}] retry #${e.data?.attempt ?? "?"}`);
+  });
+
+  emitter.on("gate:waiting", (e) => {
+    log("gate", `⏸ [${e.stepId}] waiting for approval: ${e.data?.prompt ?? ""}`);
+    if (e.data?.shortId) log("gate", `  Short ID: ${e.data.shortId}`);
+  });
+
+  emitter.on("gate:approved", (e) => {
+    const by = e.data?.approvedBy ? ` by ${e.data.approvedBy}` : "";
+    const auto = e.data?.autoApproved ? " (auto)" : "";
+    log("gate", `✓ [${e.stepId}] approved${by}${auto}`);
+  });
+
+  emitter.on("gate:rejected", (e) => {
+    log("gate", `✗ [${e.stepId}] rejected`);
+  });
+
+  emitter.on("spawn:start", (e) => {
+    log("spawn", `⚡ [${e.stepId}] spawning agent...`);
+  });
+
+  emitter.on("spawn:complete", (e) => {
+    log("spawn", `✓ [${e.stepId}] agent completed`);
+  });
+
+  return emitter;
+}
+
+function log(category: string, msg: string) {
+  const ts = new Date().toISOString().slice(11, 23); // HH:MM:SS.mmm
+  console.error(`${ts} [${category}] ${msg}`);
+}
 
 async function main() {
   // Register built-in agent adapters (openclaw, claude-code, opencode)
@@ -98,21 +180,13 @@ async function cmdRun(args: string[]) {
     ? JSON.parse(values["args-json"] as string)
     : {};
 
+  const events = values.verbose ? createVerboseEmitter() : undefined;
+
   const options: RunOptions = {
     args: pipelineArgs,
     cwd: values.cwd as string,
     mode: values["dry-run"] ? "dry-run" : values.test ? "test" : "run",
-    hooks: values.verbose
-      ? {
-          onStepStart: async (step) => {
-            console.error(`  → [${step.id}] ${step.type}...`);
-          },
-          onStepComplete: async (step, result) => {
-            const icon = result.status === "completed" ? "✓" : result.status === "skipped" ? "⊘" : "✗";
-            console.error(`  ${icon} [${step.id}] ${result.status} (${result.duration ?? 0}ms)`);
-          },
-        }
-      : {},
+    ...(events ? { events } : {}),
   };
 
   const result = await runPipeline(pipeline, options);

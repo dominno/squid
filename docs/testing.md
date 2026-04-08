@@ -368,6 +368,158 @@ describe("deploy pipeline", () => {
 
 ---
 
+## End-to-End Tests
+
+E2E tests run pipelines against **real agent CLIs** (Claude Code, OpenClaw, OpenCode). They validate the full round-trip: Squid invokes the CLI, the agent processes the task, output is parsed back into the pipeline.
+
+### Prerequisites
+
+```bash
+# Claude Code adapter
+claude --version            # must be installed and authenticated
+
+# OpenClaw adapter
+openclaw --version          # must be installed
+openclaw config             # must be authenticated
+
+# OpenClaw gateway must be running for agent spawns to work:
+openclaw status             # check if gateway is running
+openclaw gateway run --bind loopback --port 18789  # start if not running
+# Or start via the OpenClaw macOS app (menubar icon)
+
+# OpenCode adapter
+opencode --version          # must be installed
+```
+
+### Running E2E tests
+
+E2E tests are disabled by default. Enable with `SQUID_E2E=1`:
+
+```bash
+# Run all e2e tests
+SQUID_E2E=1 npx vitest run test/e2e.test.ts
+
+# Run a specific feature
+SQUID_E2E=1 npx vitest run test/e2e.test.ts -t "parallel"
+SQUID_E2E=1 npx vitest run test/e2e.test.ts -t "code review loop"
+SQUID_E2E=1 npx vitest run test/e2e.test.ts -t "sub-pipeline"
+SQUID_E2E=1 npx vitest run test/e2e.test.ts -t "gate"
+SQUID_E2E=1 npx vitest run test/e2e.test.ts -t "loop"
+SQUID_E2E=1 npx vitest run test/e2e.test.ts -t "error recovery"
+SQUID_E2E=1 npx vitest run test/e2e.test.ts -t "mixed"
+
+# Run only Claude Code tests (no OpenClaw required)
+SQUID_E2E=1 npx vitest run test/e2e.test.ts -t "claude-code"
+
+# Run only OpenClaw tests
+SQUID_E2E=1 npx vitest run test/e2e.test.ts -t "openclaw"
+```
+
+Tests auto-skip if the required CLI is not found.
+
+### E2E test coverage
+
+| Test | Pipeline | Feature Tested | Adapters | Timeout |
+|------|----------|---------------|----------|---------|
+| **Basic spawn** | `e2e-claude-code.yaml` | Single agent spawn + JSON output parsing | Claude Code | 2 min |
+| **Data flow** | `e2e-claude-code.yaml` | Output from step A available in step B | Claude Code | 2 min |
+| **OpenClaw spawn** | `e2e-openclaw.yaml` | OpenClaw CLI invocation + JSON extraction from payloads envelope | OpenClaw | 3 min |
+| **Code review loop** | `e2e-code-review-loop.yaml` | Coder → reviewer → `restart:` loop until score threshold met | Claude Code | 5 min |
+| **Restart exhaustion** | `e2e-code-review-loop.yaml` | `maxRestarts` reached → branch routes to "rejected" | Claude Code | 10 min |
+| **Parallel agents** | `e2e-parallel-agents.yaml` | `parallel:` branches, `merge: object`, concurrent spawns | Claude Code | 3 min |
+| **Sub-pipeline** | `e2e-sub-pipeline.yaml` | `pipeline:` step calls child YAML, arg passing, output propagation | Claude Code | 3 min |
+| **Gate + resume** | `e2e-gate-resume.yaml` | Gate auto-approves in `test` mode; halts with resume token in `run` mode | Claude Code | 3 min |
+| **Loop over items** | `e2e-loop-items.yaml` | `loop:` iterates list items through agent, `collect` results | Claude Code | 5 min |
+| **Error recovery** | `e2e-error-recovery.yaml` | `branch:` on agent confidence, fallback agent on failure | Claude Code | 3 min |
+| **Mixed adapters** | `e2e-mixed-adapters.yaml` | Claude Code writes code, OpenClaw reviews it in same pipeline | Claude Code + OpenClaw | 5 min |
+
+### E2E pipeline files
+
+All E2E pipelines are in `skills/squid-pipeline/examples/e2e/`:
+
+```
+e2e/
+├── e2e-claude-code.yaml          # Basic spawn
+├── e2e-openclaw.yaml             # OpenClaw spawn
+├── e2e-code-review-loop.yaml     # Restart loop (coder/reviewer)
+├── e2e-code-review-loop.test.yaml  # Sandbox test for the loop
+├── e2e-parallel-agents.yaml      # Parallel branches + merge
+├── e2e-sub-pipeline.yaml         # Parent pipeline
+├── e2e-sub-pipeline-child.yaml   # Child pipeline (called by parent)
+├── e2e-gate-resume.yaml          # Gate halt + resume
+├── e2e-loop-items.yaml           # Loop with agent per item
+├── e2e-error-recovery.yaml       # Branch-based error fallback
+└── e2e-mixed-adapters.yaml       # Claude Code + OpenClaw in one pipeline
+```
+
+Each pipeline can also be run directly with `squid run`:
+
+```bash
+# Run a single e2e pipeline manually
+squid run skills/squid-pipeline/examples/e2e/e2e-parallel-agents.yaml \
+  --args-json '{"topic": "benefits of testing"}' -v
+
+# Dry-run to see what would execute without calling agents
+squid run skills/squid-pipeline/examples/e2e/e2e-code-review-loop.yaml --dry-run
+
+# Validate all e2e pipelines
+for f in skills/squid-pipeline/examples/e2e/e2e-*.yaml; do
+  squid validate "$f"
+done
+```
+
+### Per-adapter testing
+
+**Claude Code only** (no OpenClaw gateway needed):
+
+```bash
+SQUID_E2E=1 npx vitest run test/e2e.test.ts \
+  -t "claude-code|code review loop|parallel|sub-pipeline|gate|loop|error recovery"
+```
+
+**OpenClaw only** (needs running gateway):
+
+```bash
+SQUID_E2E=1 npx vitest run test/e2e.test.ts -t "openclaw"
+```
+
+**Both adapters** (Claude Code + OpenClaw gateway):
+
+```bash
+SQUID_E2E=1 npx vitest run test/e2e.test.ts -t "mixed"
+```
+
+### Writing new E2E tests
+
+1. Create a pipeline in `skills/squid-pipeline/examples/e2e/e2e-<feature>.yaml`
+2. Validate with `squid validate`
+3. Add test case in `test/e2e.test.ts` using `it.skipIf(!shouldRun)`
+4. Use `parseFile()` + `runPipeline()` — same API as production
+5. Set generous timeouts (agents are slow: 60-300s per spawn)
+6. Log outputs with `console.log` for debugging
+7. Handle graceful failures (e.g., OpenClaw gateway not running)
+
+```typescript
+describe("e2e: my feature", () => {
+  const shouldRun = E2E_ENABLED && HAS_CLAUDE;
+
+  it.skipIf(!shouldRun)("does the thing", async () => {
+    const pipeline = parseFile(resolve(e2eDir, "e2e-my-feature.yaml"));
+    const result = await runPipeline(pipeline, {
+      args: { key: "value" },
+    });
+
+    console.log("Status:", result.status);
+    console.log("Output:", JSON.stringify(result.results.step?.output, null, 2));
+
+    expect(result.status).toBe("completed");
+    expect(result.results.step?.status).toBe("completed");
+  }, 180_000);  // 3 min timeout
+});
+```
+
+---
+
 ## Tips
 
 1. **Start with sandbox mode** — test logic first, then add integration tests for scripts
@@ -378,3 +530,4 @@ describe("deploy pipeline", () => {
 6. **Mock only what's needed** — unmocked run steps return `{ sandbox: true }`, unmocked spawns return `{ mocked: true }`
 7. **Keep test files next to pipelines** — `deploy.yaml` + `deploy.test.yaml`
 8. **Use integration mode sparingly** — only for testing actual shell commands
+9. **Use e2e tests for adapter validation** — run `SQUID_E2E=1` after changing adapters or JSON parsing
