@@ -258,6 +258,73 @@ describe("restart (jump back)", () => {
     expect(result.error).toContain("forward jumps not allowed");
   });
 
+  it("evaluates restart condition with ${...} interpolation", async () => {
+    const tmpFile = `/tmp/squid-restart-interp-${Date.now()}`;
+
+    const pipeline: Pipeline = {
+      name: "test-restart-interpolation",
+      args: { threshold: { default: "3" } },
+      steps: [
+        {
+          id: "work",
+          type: "run",
+          run: `count=$(cat ${tmpFile} 2>/dev/null || echo 0); count=$((count + 1)); echo $count > ${tmpFile}; echo "{\\"count\\": $count}"`,
+        },
+        {
+          id: "check",
+          type: "transform",
+          transform: "$work.json.count",
+          restart: {
+            step: "work",
+            when: "$work.json.count < ${args.threshold}",
+            maxRestarts: 5,
+          },
+        },
+      ],
+    };
+
+    const result = await runPipeline(pipeline);
+    expect(result.status).toBe("completed");
+    expect(result.results.work.output).toEqual({ count: 3 });
+
+    const { unlinkSync } = await import("node:fs");
+    try { unlinkSync(tmpFile); } catch {}
+  });
+
+  it("defaults maxRestarts to 3 when not specified", async () => {
+    const tmpFile = `/tmp/squid-restart-default-${Date.now()}`;
+
+    const pipeline: Pipeline = {
+      name: "test-restart-default-max",
+      steps: [
+        {
+          id: "work",
+          type: "run",
+          run: `count=$(cat ${tmpFile} 2>/dev/null || echo 0); count=$((count + 1)); echo $count > ${tmpFile}; echo "{\\"n\\": $count}"`,
+        },
+        {
+          id: "loop",
+          type: "transform",
+          transform: "$work.json.n",
+          restart: {
+            step: "work",
+            when: "true",
+            // maxRestarts omitted — should default to 3
+          },
+        },
+      ],
+    };
+
+    const result = await runPipeline(pipeline);
+    expect(result.status).toBe("completed");
+    // 1 initial + 3 restarts (default) = 4 total runs
+    expect(result.results.work.output).toEqual({ n: 4 });
+    expect(result.results.loop.meta?.restartExhausted).toBe(true);
+
+    const { unlinkSync } = await import("node:fs");
+    try { unlinkSync(tmpFile); } catch {}
+  });
+
   it("parses restart string shorthand", () => {
     const p = parsePipeline({
       name: "t",
