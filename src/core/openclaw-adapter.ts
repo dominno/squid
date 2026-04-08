@@ -72,10 +72,16 @@ export function createOpenClawAdapter(config: OpenClawConfig = {}): AgentAdapter
           timeoutMs: (timeout + 30) * 1000, // extra 30s buffer over agent timeout
         });
 
-        const output = parseAgentOutput(result.stdout);
+        // openclaw agent --json writes to stderr, not stdout
+        const rawOutput = result.stdout.trim() || result.stderr.trim();
+
+        // Extract agent response from OpenClaw JSON envelope:
+        // The output contains log lines + a JSON object with { payloads: [{ text: "..." }], meta: {...} }
+        // The agent's actual response is in payloads[0].text
+        const output = extractOpenClawResponse(rawOutput);
 
         // Try to extract session key from output
-        const childSessionKey = extractSessionKey(result.stdout);
+        const childSessionKey = extractSessionKey(rawOutput);
 
         return {
           status: "accepted",
@@ -83,10 +89,25 @@ export function createOpenClawAdapter(config: OpenClawConfig = {}): AgentAdapter
           childSessionKey,
         };
       } catch (err: unknown) {
-        const error = err as { message?: string; exitCode?: number; stderr?: string };
+        const error = err as { message?: string; exitCode?: number; stderr?: string; stdout?: string };
+
+        // OpenClaw CLI sometimes exits with code 1 even when the agent completed.
+        // Try to extract a valid response from stderr before treating as error.
+        const fallbackRaw = error.stdout?.trim() || error.stderr?.trim() || "";
+        if (fallbackRaw) {
+          const recovered = extractOpenClawResponse(fallbackRaw);
+          if (recovered != null && typeof recovered === "object" && Object.keys(recovered as Record<string, unknown>).length > 0) {
+            return {
+              status: "accepted",
+              output: recovered,
+              childSessionKey: extractSessionKey(fallbackRaw),
+            };
+          }
+        }
+
         return {
           status: "error",
-          error: error.stderr?.trim() || error.message || `openclaw exited with code ${error.exitCode}`,
+          error: error.stderr?.trim()?.slice(0, 500) || error.message || `openclaw exited with code ${error.exitCode}`,
         };
       }
     },
@@ -134,6 +155,49 @@ function buildSpawnInstruction(config: SpawnConfig): string {
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────
+
+/**
+ * Extract the agent's actual response from OpenClaw CLI output.
+ *
+ * openclaw agent --json writes to stderr with format:
+ *   <log lines...>
+ *   { "payloads": [{ "text": "agent response" }], "meta": {...} }
+ *
+ * The agent's response text is in payloads[0].text.
+ * We extract that text, then parse it as JSON if possible.
+ */
+function extractOpenClawResponse(raw: string): unknown {
+  // Find the JSON envelope in the output (skip leading log lines)
+  const jsonStart = raw.indexOf("{");
+  if (jsonStart === -1) return parseAgentOutput(raw);
+
+  try {
+    // Find the matching closing brace for the top-level object
+    let depth = 0;
+    for (let i = jsonStart; i < raw.length; i++) {
+      if (raw[i] === "{") depth++;
+      else if (raw[i] === "}") depth--;
+      if (depth === 0) {
+        const envelope = JSON.parse(raw.slice(jsonStart, i + 1));
+
+        // Extract agent text from payloads[0].text
+        const payloads = envelope?.payloads;
+        if (Array.isArray(payloads) && payloads.length > 0) {
+          const agentText = payloads[payloads.length - 1]?.text ?? "";
+          return parseAgentOutput(agentText);
+        }
+
+        // Fallback: try the whole envelope
+        return parseAgentOutput(JSON.stringify(envelope));
+      }
+    }
+  } catch {
+    // JSON parse failed — fall through
+  }
+
+  // Final fallback
+  return parseAgentOutput(raw);
+}
 
 /**
  * Try to extract a session key from the agent output.

@@ -33,7 +33,7 @@ export function createClaudeCodeAdapter(config: {
         args.push("--agent", spawnConfig.agentId);
       }
 
-      args.push("-p", spawnConfig.task, "--output-format", "json");
+      args.push("-p", spawnConfig.task, "--output-format", "json", "--dangerously-skip-permissions");
 
       // Model override
       const model = spawnConfig.model ?? defaultModel;
