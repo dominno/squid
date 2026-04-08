@@ -168,6 +168,70 @@ describe("restart (jump back)", () => {
     expect(result.error).toContain("not found");
   });
 
+  it("allows self-restart (step restarts itself)", async () => {
+    const tmpFile = `/tmp/squid-restart-self-${Date.now()}`;
+
+    const pipeline: Pipeline = {
+      name: "test-self-restart",
+      steps: [
+        {
+          id: "setup",
+          type: "run",
+          run: 'echo \'{"ready": true}\'',
+        },
+        {
+          id: "review",
+          type: "run",
+          run: `count=$(cat ${tmpFile} 2>/dev/null || echo 0); count=$((count + 1)); echo $count > ${tmpFile}; echo "{\\"score\\": $((count * 30))}"`,
+          restart: {
+            step: "review",    // self-restart
+            when: "$review.json.score < 75",
+            maxRestarts: 3,
+          },
+        },
+        {
+          id: "result",
+          type: "transform",
+          transform: "$review.json.score",
+        },
+      ],
+    };
+
+    const result = await runPipeline(pipeline);
+    expect(result.status).toBe("completed");
+    // Runs: score=30 (restart), score=60 (restart), score=90 (stop)
+    expect(result.results.review.output).toEqual({ score: 90 });
+    expect(result.results.result.output).toBe(90);
+
+    const { unlinkSync } = await import("node:fs");
+    try { unlinkSync(tmpFile); } catch {}
+  });
+
+  it("self-restart respects maxRestarts", async () => {
+    // Always-failing self-restart with maxRestarts=2
+    const pipeline: Pipeline = {
+      name: "test-self-restart-max",
+      steps: [
+        {
+          id: "check",
+          type: "run",
+          run: 'echo \'{"score": 10}\'',
+          restart: {
+            step: "check",    // self-restart
+            when: "$check.json.score < 75",
+            maxRestarts: 2,
+          },
+        },
+      ],
+    };
+
+    const result = await runPipeline(pipeline);
+    expect(result.status).toBe("completed");
+    // Exhausted after 2 restarts, continues forward
+    expect(result.results.check.meta?.restartExhausted).toBe(true);
+    expect(result.results.check.meta?.restartCount).toBe(2);
+  });
+
   it("throws on forward jump", async () => {
     const pipeline: Pipeline = {
       name: "test-forward-jump",
