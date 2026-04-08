@@ -217,4 +217,109 @@ describe("openclaw adapter", () => {
 
     expect(result.output).toBe("Agent completed successfully");
   });
+
+  // --- Bug fixes: stderr, envelope, exit code 1 ---
+
+  it("reads from stderr when stdout is empty (openclaw --json writes to stderr)", async () => {
+    mockExec.mockResolvedValue({
+      stdout: "",
+      stderr: '{"payloads":[{"text":"{\\"score\\":85}"}],"meta":{}}',
+      exitCode: 0,
+    });
+
+    const adapter = createOpenClawAdapter();
+    const result = await adapter.spawn({ task: "review" }, mockCtx());
+
+    expect(result.status).toBe("accepted");
+    expect(result.output).toEqual({ score: 85 });
+  });
+
+  it("extracts agent response from OpenClaw payloads envelope", async () => {
+    const envelope = JSON.stringify({
+      payloads: [{ text: '{"approved": false, "score": 55, "feedback": "needs work"}' }],
+      meta: { durationMs: 5000 },
+    });
+    mockExec.mockResolvedValue({
+      stdout: "",
+      stderr: `Config warning: version mismatch\n${envelope}`,
+      exitCode: 0,
+    });
+
+    const adapter = createOpenClawAdapter();
+    const result = await adapter.spawn({ task: "review" }, mockCtx());
+
+    expect(result.status).toBe("accepted");
+    expect(result.output).toEqual({ approved: false, score: 55, feedback: "needs work" });
+  });
+
+  it("extracts last payload text when multiple payloads exist", async () => {
+    const envelope = JSON.stringify({
+      payloads: [
+        { text: "thinking..." },
+        { text: '{"score": 90}' },
+      ],
+      meta: {},
+    });
+    mockExec.mockResolvedValue({ stdout: "", stderr: envelope, exitCode: 0 });
+
+    const adapter = createOpenClawAdapter();
+    const result = await adapter.spawn({ task: "review" }, mockCtx());
+
+    expect(result.output).toEqual({ score: 90 });
+  });
+
+  it("recovers response when CLI exits with code 1 but stderr has valid data", async () => {
+    const envelope = JSON.stringify({
+      payloads: [{ text: '{"approved": true, "score": 80, "feedback": "ok"}' }],
+      meta: {},
+    });
+    const err = new Error("Command failed (exit 1)") as any;
+    err.exitCode = 1;
+    err.stdout = "";
+    err.stderr = `Gateway warning\n${envelope}`;
+    mockExec.mockRejectedValue(err);
+
+    const adapter = createOpenClawAdapter();
+    const result = await adapter.spawn({ task: "review" }, mockCtx());
+
+    expect(result.status).toBe("accepted");
+    expect(result.output).toEqual({ approved: true, score: 80, feedback: "ok" });
+  });
+
+  it("returns error when CLI exits with code 1 and no recoverable data", async () => {
+    const err = new Error("Command failed") as any;
+    err.exitCode = 1;
+    err.stdout = "";
+    err.stderr = "Fatal: gateway crashed";
+    mockExec.mockRejectedValue(err);
+
+    const adapter = createOpenClawAdapter();
+    const result = await adapter.spawn({ task: "test" }, mockCtx());
+
+    expect(result.status).toBe("error");
+    expect(result.error).toContain("Fatal: gateway crashed");
+  });
+
+  it("handles stderr with log lines before JSON envelope", async () => {
+    const envelope = JSON.stringify({
+      payloads: [{ text: "plain text response" }],
+      meta: {},
+    });
+    mockExec.mockResolvedValue({
+      stdout: "",
+      stderr: [
+        "Config was last written by a newer OpenClaw (2026.4.2)",
+        "Gateway target: ws://127.0.0.1:18789",
+        "Source: local loopback",
+        envelope,
+      ].join("\n"),
+      exitCode: 0,
+    });
+
+    const adapter = createOpenClawAdapter();
+    const result = await adapter.spawn({ task: "test" }, mockCtx());
+
+    expect(result.status).toBe("accepted");
+    expect(result.output).toBe("plain text response");
+  });
 });
