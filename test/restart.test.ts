@@ -168,6 +168,70 @@ describe("restart (jump back)", () => {
     expect(result.error).toContain("not found");
   });
 
+  it("allows self-restart (step restarts itself)", async () => {
+    const tmpFile = `/tmp/squid-restart-self-${Date.now()}`;
+
+    const pipeline: Pipeline = {
+      name: "test-self-restart",
+      steps: [
+        {
+          id: "setup",
+          type: "run",
+          run: 'echo \'{"ready": true}\'',
+        },
+        {
+          id: "review",
+          type: "run",
+          run: `count=$(cat ${tmpFile} 2>/dev/null || echo 0); count=$((count + 1)); echo $count > ${tmpFile}; echo "{\\"score\\": $((count * 30))}"`,
+          restart: {
+            step: "review",    // self-restart
+            when: "$review.json.score < 75",
+            maxRestarts: 3,
+          },
+        },
+        {
+          id: "result",
+          type: "transform",
+          transform: "$review.json.score",
+        },
+      ],
+    };
+
+    const result = await runPipeline(pipeline);
+    expect(result.status).toBe("completed");
+    // Runs: score=30 (restart), score=60 (restart), score=90 (stop)
+    expect(result.results.review.output).toEqual({ score: 90 });
+    expect(result.results.result.output).toBe(90);
+
+    const { unlinkSync } = await import("node:fs");
+    try { unlinkSync(tmpFile); } catch {}
+  });
+
+  it("self-restart respects maxRestarts", async () => {
+    // Always-failing self-restart with maxRestarts=2
+    const pipeline: Pipeline = {
+      name: "test-self-restart-max",
+      steps: [
+        {
+          id: "check",
+          type: "run",
+          run: 'echo \'{"score": 10}\'',
+          restart: {
+            step: "check",    // self-restart
+            when: "$check.json.score < 75",
+            maxRestarts: 2,
+          },
+        },
+      ],
+    };
+
+    const result = await runPipeline(pipeline);
+    expect(result.status).toBe("completed");
+    // Exhausted after 2 restarts, continues forward
+    expect(result.results.check.meta?.restartExhausted).toBe(true);
+    expect(result.results.check.meta?.restartCount).toBe(2);
+  });
+
   it("throws on forward jump", async () => {
     const pipeline: Pipeline = {
       name: "test-forward-jump",
@@ -192,6 +256,73 @@ describe("restart (jump back)", () => {
     const result = await runPipeline(pipeline);
     expect(result.status).toBe("failed");
     expect(result.error).toContain("forward jumps not allowed");
+  });
+
+  it("evaluates restart condition with ${...} interpolation", async () => {
+    const tmpFile = `/tmp/squid-restart-interp-${Date.now()}`;
+
+    const pipeline: Pipeline = {
+      name: "test-restart-interpolation",
+      args: { threshold: { default: "3" } },
+      steps: [
+        {
+          id: "work",
+          type: "run",
+          run: `count=$(cat ${tmpFile} 2>/dev/null || echo 0); count=$((count + 1)); echo $count > ${tmpFile}; echo "{\\"count\\": $count}"`,
+        },
+        {
+          id: "check",
+          type: "transform",
+          transform: "$work.json.count",
+          restart: {
+            step: "work",
+            when: "$work.json.count < ${args.threshold}",
+            maxRestarts: 5,
+          },
+        },
+      ],
+    };
+
+    const result = await runPipeline(pipeline);
+    expect(result.status).toBe("completed");
+    expect(result.results.work.output).toEqual({ count: 3 });
+
+    const { unlinkSync } = await import("node:fs");
+    try { unlinkSync(tmpFile); } catch {}
+  });
+
+  it("defaults maxRestarts to 3 when not specified", async () => {
+    const tmpFile = `/tmp/squid-restart-default-${Date.now()}`;
+
+    const pipeline: Pipeline = {
+      name: "test-restart-default-max",
+      steps: [
+        {
+          id: "work",
+          type: "run",
+          run: `count=$(cat ${tmpFile} 2>/dev/null || echo 0); count=$((count + 1)); echo $count > ${tmpFile}; echo "{\\"n\\": $count}"`,
+        },
+        {
+          id: "loop",
+          type: "transform",
+          transform: "$work.json.n",
+          restart: {
+            step: "work",
+            when: "true",
+            // maxRestarts omitted — should default to 3
+          },
+        },
+      ],
+    };
+
+    const result = await runPipeline(pipeline);
+    expect(result.status).toBe("completed");
+    // 1 initial + 3 restarts (default) = 4 total runs
+    expect(result.results.work.output).toEqual({ n: 4 });
+    expect(result.results.loop.meta?.restartExhausted).toBe(true);
+
+    const { unlinkSync } = await import("node:fs");
+    try { unlinkSync(tmpFile); } catch {}
   });
 
   it("parses restart string shorthand", () => {

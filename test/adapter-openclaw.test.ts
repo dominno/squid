@@ -300,6 +300,24 @@ describe("openclaw adapter", () => {
     expect(result.error).toContain("Fatal: gateway crashed");
   });
 
+  it("extracts payloads from wrapped envelope (result.payloads)", async () => {
+    const envelope = JSON.stringify({
+      runId: "abc-123",
+      status: "ok",
+      summary: "completed",
+      result: {
+        payloads: [{ text: '{"approved": true, "score": 95, "feedback": "looks good"}' }],
+      },
+    });
+    mockExec.mockResolvedValue({ stdout: envelope, stderr: "", exitCode: 0 });
+
+    const adapter = createOpenClawAdapter();
+    const result = await adapter.spawn({ task: "review" }, mockCtx());
+
+    expect(result.status).toBe("accepted");
+    expect(result.output).toEqual({ approved: true, score: 95, feedback: "looks good" });
+  });
+
   it("handles stderr with log lines before JSON envelope", async () => {
     const envelope = JSON.stringify({
       payloads: [{ text: "plain text response" }],

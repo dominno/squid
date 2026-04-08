@@ -180,8 +180,11 @@ function extractOpenClawResponse(raw: string): unknown {
       if (depth === 0) {
         const envelope = JSON.parse(raw.slice(jsonStart, i + 1));
 
-        // Extract agent text from payloads[0].text
-        const payloads = envelope?.payloads;
+        // Extract agent text from payloads[N].text
+        // Two envelope formats:
+        //   Direct:  { payloads: [{ text: "..." }], meta: {...} }
+        //   Wrapped: { runId, status, result: { payloads: [{ text: "..." }] } }
+        const payloads = envelope?.payloads ?? envelope?.result?.payloads;
         if (Array.isArray(payloads) && payloads.length > 0) {
           const agentText = payloads[payloads.length - 1]?.text ?? "";
           return parseAgentOutput(agentText);
