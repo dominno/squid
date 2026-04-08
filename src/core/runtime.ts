@@ -198,9 +198,9 @@ export async function runPipeline(
             `Restart target step '${targetId}' not found in pipeline '${pipeline.name}'`
           );
         }
-        if (targetIndex >= i) {
+        if (targetIndex > i) {
           throw new Error(
-            `Restart target '${targetId}' must be before current step '${step.id}' (forward jumps not allowed)`
+            `Restart target '${targetId}' must be at or before current step '${step.id}' (forward jumps not allowed)`
           );
         }
 
