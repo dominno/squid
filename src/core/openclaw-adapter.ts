@@ -89,10 +89,25 @@ export function createOpenClawAdapter(config: OpenClawConfig = {}): AgentAdapter
           childSessionKey,
         };
       } catch (err: unknown) {
-        const error = err as { message?: string; exitCode?: number; stderr?: string };
+        const error = err as { message?: string; exitCode?: number; stderr?: string; stdout?: string };
+
+        // OpenClaw CLI sometimes exits with code 1 even when the agent completed.
+        // Try to extract a valid response from stderr before treating as error.
+        const fallbackRaw = error.stdout?.trim() || error.stderr?.trim() || "";
+        if (fallbackRaw) {
+          const recovered = extractOpenClawResponse(fallbackRaw);
+          if (recovered != null && typeof recovered === "object" && Object.keys(recovered as Record<string, unknown>).length > 0) {
+            return {
+              status: "accepted",
+              output: recovered,
+              childSessionKey: extractSessionKey(fallbackRaw),
+            };
+          }
+        }
+
         return {
           status: "error",
-          error: error.stderr?.trim() || error.message || `openclaw exited with code ${error.exitCode}`,
+          error: error.stderr?.trim()?.slice(0, 500) || error.message || `openclaw exited with code ${error.exitCode}`,
         };
       }
     },
